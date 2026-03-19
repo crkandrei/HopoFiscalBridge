@@ -3,7 +3,8 @@ import { metrics } from './metrics.service';
 import { agentLogBuffer } from '../utils/agentTransport';
 import logger from '../utils/logger';
 
-const VERSION = '1.0.0';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const VERSION: string = require('../../package.json').version;
 
 interface BackoffState {
   delay: number;

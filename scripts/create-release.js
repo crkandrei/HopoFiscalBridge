@@ -32,7 +32,8 @@ const zipPathLatest = path.join(root, zipNameLatest);
 
 console.log(`Building HopoFiscalBridge ${tag}...`);
 
-// 1. Install & build
+// 1. Bump version in package.json, install & build
+execSync(`npm version ${version} --no-git-tag-version`, { cwd: root, stdio: 'inherit' });
 execSync('npm install', { cwd: root, stdio: 'inherit' });
 execSync('npm run build', { cwd: root, stdio: 'inherit' });
 
