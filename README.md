@@ -17,220 +17,222 @@ HopoFiscalBridge rulează ca **Windows Service** pe stațiile clienților și ex
 
 ---
 
-## Instalare pe stația clientului (Windows Service)
+## Instalare client nou (ghid complet)
 
-### Cerințe
+### Pas 1 — Instalează Node.js pe stație
 
-- Windows 10 / 11
-- [Node.js v18 sau mai recent](https://nodejs.org/) instalat
-- Driverul ECR Bridge instalat și folderele `C:/ECRBridge/Bon/`, `C:/ECRBridge/BonOK/`, `C:/ECRBridge/BonErr/` create
-
-### Pași de instalare
-
-**1. Descarcă ZIP-ul de pe GitHub Releases**
-
-Descarcă cel mai recent `HopoFiscalBridge-vX.X.X.zip` și extrage-l pe stație (ex: `C:\HopoFiscalBridge\`).
-
-> ZIP-ul include `nssm.exe` (service manager) — nu trebuie instalat separat.
-
-**2. Configurează `.env`**
-
-Dacă vrei să precompletezi configurația înainte de instalare, creează `.env` în folderul extras:
-
-```env
-PORT=9000
-ECR_BRIDGE_BON_PATH=C:/ECRBridge/Bon/
-ECR_BRIDGE_BON_OK_PATH=C:/ECRBridge/BonOK/
-ECR_BRIDGE_BON_ERR_PATH=C:/ECRBridge/BonErr/
-ECR_BRIDGE_FISCAL_CODE=
-RESPONSE_TIMEOUT=15000
-BRIDGE_MODE=live
-LOG_LEVEL=info
-CLOUD_API_URL=https://adresa-aplicatiei-tale.com/api
-CLOUD_API_KEY=cheia-secreta
-UPDATE_GITHUB_REPO=owner/HopoFiscalBridge
-```
-
-> Dacă `.env` nu există, installerul îl creează automat cu un `CLIENT_ID` UUID unic.
-
-**3. Rulează installerul**
-
-Deschide PowerShell **ca Administrator**, navighează în folderul extras și rulează:
+Deschide PowerShell ca Administrator și rulează:
 
 ```powershell
+winget install OpenJS.NodeJS.LTS
+```
+
+Dacă `winget` nu e disponibil (Windows mai vechi):
+
+```powershell
+Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.19.0/node-v20.19.0-x64.msi" -OutFile "C:\node-install.msi"
+Start-Process msiexec.exe -Wait -ArgumentList '/I C:\node-install.msi /quiet'
+```
+
+**Închide și redeschide PowerShell ca Administrator** după instalare (PATH-ul nu se actualizează în sesiunea curentă). Verifică:
+
+```powershell
+node --version
+```
+
+Trebuie să apară `v20.x.x` sau mai recent.
+
+---
+
+### Pas 2 — Descarcă și extrage ZIP-ul
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/crkandrei/HopoFiscalBridge/releases/latest/download/HopoFiscalBridge-latest.zip" -OutFile "C:\HopoFiscalBridge.zip"
+Expand-Archive -Path "C:\HopoFiscalBridge.zip" -DestinationPath "C:\HopoFiscalBridge" -Force
+```
+
+> ZIP-ul include `nssm.exe` — nu trebuie instalat separat.
+
+---
+
+### Pas 3 — Generează `.env` cu CLIENT_ID unic
+
+Dacă există deja un `.env` gol (de la o instalare anterioară eșuată), șterge-l mai întâi:
+
+```powershell
+if (Test-Path C:\HopoFiscalBridge\.env) { Remove-Item C:\HopoFiscalBridge\.env }
+node C:\HopoFiscalBridge\install\generate-env.js
+```
+
+Asta creează un `.env` complet cu un `CLIENT_ID` UUID unic generat automat.
+
+---
+
+### Pas 4 — Generează API Key în aplicația web
+
+1. Intră în aplicația web → **Locații** → selectează locația clientului → **Editează**
+2. Secțiunea **Configurare Bridge** → apasă **Generează API Key**
+3. Copiază key-ul afișat (ex: `0abb536fe5cf561d...`)
+
+---
+
+### Pas 5 — Completează `.env`
+
+```powershell
+notepad C:\HopoFiscalBridge\.env
+```
+
+Completează câmpurile goale:
+
+```env
+ECR_BRIDGE_FISCAL_CODE=RO12345678      # CUI-ul clientului (opțional)
+CLOUD_API_URL=https://app.hopo.ro/api
+CLOUD_API_KEY=<key-ul copiat la pasul 4>
+UPDATE_GITHUB_REPO=crkandrei/HopoFiscalBridge
+```
+
+Restul valorilor (PORT, căile ECR, RESPONSE_TIMEOUT etc.) sunt deja corecte din generare.
+
+---
+
+### Pas 6 — Rulează installerul
+
+```powershell
+cd C:\HopoFiscalBridge
 powershell.exe -ExecutionPolicy Bypass -File install\install.ps1
 ```
 
 Installerul face automat:
-1. Verifică că rulează ca Administrator; oprește dacă nu
-2. Verifică Node.js v18+; oprește cu mesaj clar dacă nu e instalat
-3. Dacă serviciul `HopoFiscalBridge` există deja: îl oprește și îl dezinstalează (reinstalare curată)
-4. Rulează `install\generate-env.js` → creează `.env` cu `CLIENT_ID` UUID unic (dacă nu există)
-5. Înregistrează serviciul Windows `HopoFiscalBridge` via NSSM cu pornire automată la boot
-6. Pornește serviciul
-7. Afișează comanda de verificare
+1. Verifică că rulează ca Administrator
+2. Verifică Node.js v18+
+3. Dacă serviciul există deja — îl oprește și îl dezinstalează (reinstalare curată)
+4. Înregistrează serviciul `HopoFiscalBridge` via NSSM cu pornire automată la boot
+5. Pornește serviciul
 
-**4. Verifică că serviciul rulează**
+---
+
+### Pas 7 — Verifică instalarea
 
 ```cmd
 sc query HopoFiscalBridge
 ```
 
-Răspuns așteptat: `STATE : 4  RUNNING`
-
-**5. Testează endpoint-ul**
+Trebuie să apară `STATE : 4  RUNNING`.
 
 ```cmd
 curl http://localhost:9000/health
 ```
 
-### Dezinstalare
+Trebuie să returneze `{"status":"ok",...}`.
+
+---
+
+### Pas 8 — Verifică conexiunea cu cloud-ul
+
+În aplicația web → **Locații** → coloana **Bridge** trebuie să afișeze **Online** în maxim 30-60 de secunde după pornirea serviciului.
+
+Dacă după 60 de secunde tot apare „Niciodată conectat", verifică log-urile:
 
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File install\uninstall.ps1
+type C:\HopoFiscalBridge\logs\app.log
+```
+
+Caută `AgentService starting` — dacă apare `AgentService disabled or CLOUD_API_URL not set`, înseamnă că `.env`-ul nu a fost citit (repornește serviciul):
+
+```powershell
+Restart-Service HopoFiscalBridge
 ```
 
 ---
 
 ## Lansare versiune nouă (pentru developer)
 
-### Cerințe
+### Cerințe (o singură dată pe mașina de dev)
 
-- `gh` CLI instalat și autentificat (`gh auth login`)
-- `install/nssm.exe` prezent local (descarcă de pe https://nssm.cc/download)
-
-### Pași
+- `gh` CLI instalat (`brew install gh`) și autentificat (`gh auth login`)
+- `install/nssm.exe` prezent local — dacă lipsește:
 
 ```bash
+curl -L https://nssm.cc/release/nssm-2.24.zip -o /tmp/nssm.zip
+unzip -p /tmp/nssm.zip nssm-2.24/win64/nssm.exe > install/nssm.exe
+```
+
+### Creare release
+
+```bash
+cd /path/to/HopoFiscalBridge
+npm install  # dacă e prima dată după clone
 npm run release -- --version 1.2.0
 ```
 
-Scriptul face automat:
-1. `npm install` + `npm run build`
-2. Creează `HopoFiscalBridge-v1.2.0.zip` cu: `dist/`, `node_modules/`, `package.json`, `.env.example`, `nssm.exe`, `install/`
-3. Creează și `HopoFiscalBridge-latest.zip` (același conținut, filename stabil)
-4. Publică pe GitHub Releases: `gh release create v1.2.0 ...`
-
-> **Notă:** Comanda `update` trimisă de cloud trebuie să specifice întotdeauna o versiune explicită (`{ "version": "1.2.0" }`). URL-ul `latest` este rezervat pentru uz manual de developer.
+Scriptul face automat: build → ZIP → publică pe GitHub Releases.
 
 ---
 
 ## Auto-update pe stații existente
 
-Trimite comanda `update` de la cloud cu payload:
+Trimite comanda `update` din aplicația web (Edit locație → Configurare Bridge → câmpul de versiune) sau direct:
 
 ```json
-{ "version": "1.2.0" }
+{ "command": "update", "payload": { "version": "1.2.0" } }
 ```
 
 ### Ce se întâmplă pas cu pas
 
-1. **Cloud → stație**: AgentService primește comanda `update` la polling-ul de comenzi
-2. **Validare**: se verifică că `version` este prezent și în format semver (`X.Y.Z`); altfel ACK cu eroare
-3. **Download ZIP**: serviciul descarcă `HopoFiscalBridge-v1.2.0.zip` de pe GitHub Releases în `%TEMP%\hopo-update-{timestamp}.zip`
-4. **Extragere**: ZIP-ul se extrage în `%TEMP%\hopo-update-{timestamp}\`
-5. **Spawn detașat**: serviciul lansează `install\update.ps1` complet detașat (`detached: true, stdio: 'ignore'`) cu parametrii `$TempDir` și `$InstallDir`; apelează `child.unref()` ca procesul Node.js să poată ieși
-6. **ACK + exit**: serviciul trimite ACK `{ success: true, message: "Update initiated, service restarting..." }` și apelează `process.exit(0)`
-7. **update.ps1 preia controlul** (rulează independent după ce Node.js a ieșit):
-   - Oprește serviciul `HopoFiscalBridge` via NSSM
-   - Polling: verifică la fiecare 1 secundă dacă serviciul s-a oprit, max 15 secunde
-   - Dacă timeout: forțează oprire și continuă
-   - Copiază `dist\` → `$InstallDir\dist\` (overwrite)
-   - Copiază `node_modules\` → `$InstallDir\node_modules\` (overwrite)
-   - Copiază `package.json` → `$InstallDir\package.json`
-   - Pornește serviciul `HopoFiscalBridge` via NSSM
-   - Scrie rezultatul în `$InstallDir\logs\update.log`
-   - Șterge fișierele temporare din `%TEMP%`
-
-> **`.env` nu este suprascris la update** — configurația clientului (CLIENT_ID, căi ECR, credențiale cloud) este păstrată intactă.
-
-Progresul update-ului poate fi urmărit în `logs\update.log` pe stație.
+1. AgentService primește comanda la polling (max 10 secunde)
+2. Descarcă `HopoFiscalBridge-v1.2.0.zip` de pe GitHub Releases în `%TEMP%`
+3. Extrage ZIP-ul în `%TEMP%`
+4. Lansează `install\update.ps1` complet detașat și iese din proces
+5. `update.ps1` oprește serviciul, așteaptă max 15s
+6. Copiază `dist\`, `node_modules\`, `package.json` (`.env` nu e atins)
+7. Pornește serviciul
+8. Scrie rezultatul în `logs\update.log`
+9. Șterge fișierele temporare
 
 ---
 
 ## Comenzi remote (cloud → stație)
 
-AgentService face polling periodic la cloud (`GET /bridges/commands/{clientId}`) și execută comenzile primite. Fiecare comandă este confirmată (ACK) la `POST /bridges/commands/{clientId}/ack`.
-
 ### restart
-
-**Payload:** `{}` (gol)
-
-**Ce face:**
-1. Trimite ACK `{ success: true, message: "Restarting..." }`
-2. Apelează `process.exit(0)`
-3. NSSM detectează că serviciul s-a oprit și îl repornește automat
-
-**Utilizare:** repornire rapidă după o configurare manuală sau pentru a aplica modificări la `.env` făcute direct pe stație.
 
 ```json
 { "command": "restart", "payload": {} }
 ```
 
+Serviciul iese cu `exit(0)`, NSSM îl repornește automat.
+
 ---
 
 ### set_config
 
-**Payload:** obiect cu una sau mai multe chei de configurare
+Actualizează `.env` și repornește serviciul. Chei permise:
 
-**Ce face:**
-1. Validează că fiecare cheie trimisă este permisă și că valoarea respectă constrângerile
-2. Citește `.env`-ul existent, actualizează sau adaugă fiecare cheie
-3. Scrie `.env`-ul modificat pe disc
-4. Trimite ACK `{ success: true, message: "Config updated, restarting..." }`
-5. Apelează `process.exit(0)` → NSSM repornește serviciul cu noua configurație
+| Cheie | Valori acceptate |
+|-------|-----------------|
+| `BRIDGE_MODE` | `live` sau `test` |
+| `RESPONSE_TIMEOUT` | număr între `5000` și `60000` |
+| `LOG_LEVEL` | `info`, `warn`, `error` |
+| `HEARTBEAT_INTERVAL` | număr ≥ `5000` |
+| `LOG_BATCH_INTERVAL` | număr ≥ `10000` |
+| `COMMAND_POLL_INTERVAL` | număr ≥ `5000` |
 
-**Chei permise:**
-
-| Cheie | Valori acceptate | Descriere |
-|-------|-----------------|-----------|
-| `BRIDGE_MODE` | `live` sau `test` | `live` = bonuri fiscale reale; `test` = chitanțe de test non-fiscale |
-| `RESPONSE_TIMEOUT` | număr între `5000` și `60000` | Timeout (ms) pentru așteptarea răspunsului ECR Bridge la `/print` |
-| `LOG_LEVEL` | `info`, `warn`, `error` | Nivelul minim de logare |
-| `HEARTBEAT_INTERVAL` | număr ≥ `5000` | Interval (ms) între heartbeat-uri către cloud |
-| `LOG_BATCH_INTERVAL` | număr ≥ `10000` | Interval (ms) între trimiterea batch-urilor de loguri |
-| `COMMAND_POLL_INTERVAL` | număr ≥ `5000` | Interval (ms) între polling-ul de comenzi |
-
-Dacă o cheie nu este în lista permisă sau valoarea nu respectă constrângerile, se returnează ACK cu `success: false` fără a modifica `.env`.
-
-**Exemple:**
-
-Activare mod test:
+Exemple:
 ```json
 { "command": "set_config", "payload": { "BRIDGE_MODE": "test" } }
-```
-
-Revenire la mod live:
-```json
 { "command": "set_config", "payload": { "BRIDGE_MODE": "live" } }
-```
-
-Modificare timeout și nivel logare:
-```json
-{ "command": "set_config", "payload": { "RESPONSE_TIMEOUT": "20000", "LOG_LEVEL": "warn" } }
 ```
 
 ---
 
 ### update
 
-**Payload:** `{ "version": "X.Y.Z" }` — versiunea este obligatorie în format semver
-
-**Ce face:** descris detaliat în secțiunea [Auto-update pe stații existente](#auto-update-pe-stații-existente).
-
-```json
-{ "command": "update", "payload": { "version": "1.2.0" } }
-```
+Descris în secțiunea [Auto-update pe stații existente](#auto-update-pe-stații-existente).
 
 ---
 
 ## API Endpoints
 
 ### POST /print
-
-Emite un bon fiscal.
-
-**Request Body:**
 
 ```json
 {
@@ -241,238 +243,53 @@ Emite un bon fiscal.
 }
 ```
 
-**Câmpuri:**
-- `productName` (string, obligatoriu): Numele produsului/serviciului
-- `duration` (string, obligatoriu): Durata serviciului
-- `price` (number, obligatoriu): Prețul (trebuie să fie pozitiv)
-- `paymentType` (string, obligatoriu): `"CASH"` sau `"CARD"`
-
-**Răspuns success (200):**
-
-```json
-{
-  "status": "success",
-  "message": "Bon fiscal emis",
-  "file": "bon_20231215143022.txt"
-}
-```
-
-**Răspuns eroare (400/500/504):**
-
-```json
-{
-  "status": "error",
-  "message": "Eroare la imprimare",
-  "details": "Detalii despre eroare..."
-}
-```
-
-**Exemplu curl:**
-
-```bash
-curl -X POST http://localhost:9000/print \
-  -H "Content-Type: application/json" \
-  -d '{
-    "productName": "Ora de joacă",
-    "duration": "1h 15m",
-    "price": 22.50,
-    "paymentType": "CASH"
-  }'
-```
+- `paymentType`: `"CASH"` sau `"CARD"`
+- Răspuns success `200`: `{ "status": "success", "file": "bon_20231215143022.txt" }`
+- Răspuns eroare `400/500/504`: `{ "status": "error", "message": "...", "details": "..." }`
 
 ---
 
 ### POST /z-report
 
-Declanșează un raport Z (raport zilnic de închidere).
-
-**Request Body:** gol `{}`
-
-**Răspuns success (200):**
-
-```json
-{
-  "status": "success",
-  "message": "Z;1",
-  "file": "zreport_20231215143022.txt"
-}
-```
-
-**Răspuns eroare (500/504):**
-
-```json
-{
-  "status": "error",
-  "message": "Eroare la generarea raportului Z",
-  "details": "Detalii despre eroare..."
-}
-```
-
-> **Notă:** Raportul Z are un timeout de 30 de secunde (față de `RESPONSE_TIMEOUT` pentru bonuri), deoarece procesarea poate dura mai mult.
-
-**Exemplu curl:**
-
-```bash
-curl -X POST http://localhost:9000/z-report \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
+Body gol. Timeout 30 secunde. Răspuns success: `{ "status": "success", "message": "Z;1" }`.
 
 ---
 
 ### GET /health
 
-Verificarea stării serverului.
-
-**Răspuns:**
-
 ```json
-{
-  "status": "ok",
-  "service": "bongo-fiscal-bridge",
-  "timestamp": "2023-12-15T14:30:22.000Z"
-}
+{ "status": "ok", "service": "bongo-fiscal-bridge", "timestamp": "..." }
 ```
 
 ---
 
-## Structura fișierelor ECR Bridge
-
-### Format bon fiscal
-
-```
-FISCAL
-I;{productName} ({duration});1;{price};1
-P;{pay_code};0
-```
-
-Dacă `ECR_BRIDGE_FISCAL_CODE` este setat:
-
-```
-FISCAL;{fiscalCode}
-I;{productName} ({duration});1;{price};1
-P;{pay_code};0
-```
-
-- `pay_code`: `0` = CASH, `1` = CARD
-- Prețul folosește punct ca separator zecimal
-
-### Nume fișiere
-
-- **Bon generat:** `bon_{timestamp}.txt` — scris în `ECR_BRIDGE_BON_PATH`
-- **Raport Z generat:** `zreport_{timestamp}.txt` — scris în `ECR_BRIDGE_BON_PATH`
-- **Răspuns OK:** `bon_{timestamp}.OK` sau `zreport_{timestamp}.OK` — apare în `ECR_BRIDGE_BON_OK_PATH`
-- **Răspuns ERR:** `bon_{timestamp}.ERR` sau `zreport_{timestamp}.ERR` — apare în `ECR_BRIDGE_BON_ERR_PATH`
-
-Timestamp în format `YYYYMMDDHHmmss`.
-
----
-
-## Configurare
-
-Toate configurațiile se fac prin fișierul `.env`:
+## Configurare `.env`
 
 | Variabilă | Descriere | Default |
 |-----------|-----------|---------|
-| `PORT` | Portul serverului HTTP | `9000` |
-| `ECR_BRIDGE_BON_PATH` | Calea către folderul Bon | `C:/ECRBridge/Bon/` |
-| `ECR_BRIDGE_BON_OK_PATH` | Calea către folderul BonOK | `C:/ECRBridge/BonOK/` |
-| `ECR_BRIDGE_BON_ERR_PATH` | Calea către folderul BonErr | `C:/ECRBridge/BonErr/` |
-| `ECR_BRIDGE_FISCAL_CODE` | Cod fiscal (opțional) — inclus în header dacă setat | - |
-| `RESPONSE_TIMEOUT` | Timeout pentru bon (ms) | `15000` |
-| `BRIDGE_MODE` | `live` (bonuri fiscale) sau `test` (chitanțe de test) | `live` |
-| `LOG_LEVEL` | Nivelul de logare: `info`, `warn`, `error` | `info` |
-| `CLIENT_ID` | UUID unic al stației — generat automat la instalare | - |
-| `CLOUD_API_URL` | URL-ul API-ului cloud pentru AgentService | - |
-| `CLOUD_API_KEY` | Cheia de autentificare pentru cloud API | - |
-| `UPDATE_GITHUB_REPO` | Repo GitHub pentru auto-update (format: `owner/repo`) | - |
-| `HEARTBEAT_INTERVAL` | Interval heartbeat (ms) | `60000` |
-| `LOG_BATCH_INTERVAL` | Interval trimitere loguri (ms) | `30000` |
-| `COMMAND_POLL_INTERVAL` | Interval polling comenzi (ms) | `15000` |
+| `PORT` | Portul HTTP | `9000` |
+| `ECR_BRIDGE_BON_PATH` | Folder Bon | `C:/ECRBridge/Bon/` |
+| `ECR_BRIDGE_BON_OK_PATH` | Folder BonOK | `C:/ECRBridge/BonOK/` |
+| `ECR_BRIDGE_BON_ERR_PATH` | Folder BonErr | `C:/ECRBridge/BonErr/` |
+| `ECR_BRIDGE_FISCAL_CODE` | CUI client (opțional) | - |
+| `RESPONSE_TIMEOUT` | Timeout bon (ms) | `15000` |
+| `BRIDGE_MODE` | `live` sau `test` | `live` |
+| `LOG_LEVEL` | `info`, `warn`, `error` | `info` |
+| `CLIENT_ID` | UUID unic — generat automat | - |
+| `CLOUD_API_URL` | URL API cloud | - |
+| `CLOUD_API_KEY` | Cheie autentificare cloud | - |
+| `UPDATE_GITHUB_REPO` | `crkandrei/HopoFiscalBridge` | - |
+| `HEARTBEAT_INTERVAL` | Interval heartbeat (ms) | `30000` |
+| `LOG_BATCH_INTERVAL` | Interval trimitere loguri (ms) | `60000` |
+| `COMMAND_POLL_INTERVAL` | Interval polling comenzi (ms) | `10000` |
 
 ---
 
-## Loguri
+## Dezinstalare
 
-Aplicația generează loguri în folderul `logs/`:
-
-- **`app.log`**: Toate logurile (info, warn, error)
-- **`error.log`**: Doar erorile
-- **`update.log`**: Rezultatul ultimei operațiuni de auto-update
-
-Logurile sunt în format JSON cu timestamp și informații detaliate.
-
----
-
-## Instalare pentru dezvoltare (fără serviciu Windows)
-
-### Cerințe
-
-- Node.js v18 sau mai recent
-- npm
-
-### Pași
-
-1. Clonează proiectul
-2. Instalează dependențele:
-
-```bash
-npm install
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File install\uninstall.ps1
 ```
-
-3. Configurează variabilele de mediu:
-
-```bash
-cp .env.example .env
-```
-
-Editează `.env` și configurează căile ECR Bridge.
-
-**Pentru testare pe Mac/Linux:**
-```env
-ECR_BRIDGE_BON_PATH=./ecrBridge/Bon/
-ECR_BRIDGE_BON_OK_PATH=./ecrBridge/BonOK/
-ECR_BRIDGE_BON_ERR_PATH=./ecrBridge/BonErr/
-```
-
-### Rulare development
-
-```bash
-npm run dev
-```
-
-### Rulare production
-
-```bash
-npm run build
-npm start
-```
-
----
-
-## Troubleshooting
-
-### Timeout la așteptarea răspunsului
-
-**Cauze posibile:** ECR Bridge nu rulează, căi incorecte, casa de marcat deconectată.
-
-1. Verifică că ECR Bridge este pornit
-2. Verifică căile din `.env`
-3. Verifică că folderele există și sunt accesibile
-4. Verifică logurile: `logs/app.log`
-
-### Eroare la generarea fișierului
-
-**Cauze posibile:** permisiuni insuficiente, folderul nu există, calea incorectă.
-
-1. Verifică permisiunile folderului
-2. Rulează serviciul cu permisiuni de administrator
-3. Verifică că calea este corectă în `.env`
-
-### Validare eșuată
-
-- `paymentType` trebuie să fie exact `"CASH"` sau `"CARD"`
-- `price` trebuie să fie un număr pozitiv
 
 ---
 
