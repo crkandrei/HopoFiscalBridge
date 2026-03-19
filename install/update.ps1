@@ -44,9 +44,11 @@ Write-Log "Service stopped."
 
 # 3. Replace dist\ and node_modules\
 try {
-    Write-Log "Copying dist\..."
+    Write-Log "Replacing dist\..."
+    Remove-Item -Path "$InstallDir\dist" -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item -Path "$TempDir\dist" -Destination "$InstallDir\dist" -Recurse -Force
-    Write-Log "Copying node_modules\..."
+    Write-Log "Replacing node_modules\..."
+    Remove-Item -Path "$InstallDir\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item -Path "$TempDir\node_modules" -Destination "$InstallDir\node_modules" -Recurse -Force
     Write-Log "Copying package.json..."
     Copy-Item -Path "$TempDir\package.json" -Destination "$InstallDir\package.json" -Force
