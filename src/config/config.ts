@@ -39,6 +39,12 @@ export const config = {
     logBatchInterval: parseInt(process.env.LOG_BATCH_INTERVAL || '60000', 10),
     commandPollInterval: parseInt(process.env.COMMAND_POLL_INTERVAL || '10000', 10),
   },
+
+  // Auto-update
+  update: {
+    // Format: "owner/repo" — used to build GitHub Releases download URL
+    githubRepo: process.env.UPDATE_GITHUB_REPO || '',
+  },
 };
 
 // Validate required configuration
