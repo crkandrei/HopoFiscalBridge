@@ -327,6 +327,7 @@ Toate configurațiile se fac prin fișierul `.env`:
 | `ECR_BRIDGE_FISCAL_CODE` | Cod fiscal (opțional) - dacă este setat, va fi inclus în header | - |
 | `RESPONSE_TIMEOUT` | Timeout pentru așteptare răspuns (ms) | `15000` |
 | `LOG_LEVEL` | Nivelul de logare (info, warn, error) | `info` |
+| `UPDATE_GITHUB_REPO` | Repo GitHub pentru auto-update (format: `owner/repo`) | - |
 
 ## 🐛 Troubleshooting
 

@@ -14,6 +14,15 @@ if (versionIdx === -1 || !args[versionIdx + 1]) {
   process.exit(1);
 }
 const version = args[versionIdx + 1];
+
+// Detect GitHub owner from git remote
+let repoOwner = '{owner}';
+try {
+  const remoteUrl = execSync('git config --get remote.origin.url', { encoding: 'utf-8' }).trim();
+  const match = remoteUrl.match(/github\.com[:/]([^/]+)/);
+  if (match) repoOwner = match[1];
+} catch (e) { /* use placeholder if git remote not configured */ }
+
 const root = path.resolve(__dirname, '..');
 const tag = `v${version}`;
 const zipName = `HopoFiscalBridge-${tag}.zip`;
@@ -61,14 +70,16 @@ console.log(`Created: ${zipName} + ${zipNameLatest}`);
 
 // 4. Create GitHub Release — upload both versioned and latest ZIPs
 console.log(`Creating GitHub Release ${tag}...`);
-execSync(
-  `gh release create ${tag} "${zipPath}" "${zipPathLatest}" --title "${tag}" --notes "HopoFiscalBridge ${tag}"`,
-  { cwd: root, stdio: 'inherit' }
-);
-
-// 5. Cleanup local ZIPs
-fs.unlinkSync(zipPath);
-fs.unlinkSync(zipPathLatest);
+try {
+  execSync(
+    `gh release create ${tag} "${zipPath}" "${zipPathLatest}" --title "${tag}" --notes "HopoFiscalBridge ${tag}"`,
+    { cwd: root, stdio: 'inherit' }
+  );
+} finally {
+  // 5. Cleanup local ZIPs (always, even on failure)
+  try { fs.unlinkSync(zipPath); } catch (e) {}
+  try { fs.unlinkSync(zipPathLatest); } catch (e) {}
+}
 
 console.log(`\nRelease ${tag} published successfully.`);
-console.log(`Download URL: https://github.com/{owner}/HopoFiscalBridge/releases/download/${tag}/${zipName}`);
+console.log(`Download URL: https://github.com/${repoOwner}/HopoFiscalBridge/releases/download/${tag}/${zipName}`);
