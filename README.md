@@ -8,13 +8,108 @@ Acest microserviciu oferă un endpoint HTTP REST pentru generarea și trimiterea
 
 ## 🚀 Instalare
 
-### Cerințe
+### Instalare pe stația clientului (Windows Service — recomandat)
+
+Acesta este modul standard de instalare pe calculatoarele clienților. Bridge-ul rulează ca serviciu Windows — pornește automat la boot și se repornește singur dacă pică.
+
+#### Cerințe
+
+- Windows 10 / 11
+- [Node.js v18 sau mai recent](https://nodejs.org/) instalat
+- Driverul ECR Bridge instalat și folderele `C:/ECRBridge/Bon/`, `C:/ECRBridge/BonOK/`, `C:/ECRBridge/BonErr/` create
+
+#### Pași de instalare
+
+**1. Descarcă / clonează proiectul pe stație**
+
+```
+git clone <url-repo> BongoFiscalBridge
+```
+
+sau copiază folderul `BongoFiscalBridge` direct pe stație (de exemplu în `C:\BongoFiscalBridge`).
+
+**2. Configurează `.env`**
+
+Creează fișierul `.env` în rădăcina proiectului (sau lasă installerul să îl genereze automat la pasul următor). Dacă vrei să îl configurezi manual înainte:
+
+```env
+PORT=9000
+ECR_BRIDGE_BON_PATH=C:/ECRBridge/Bon/
+ECR_BRIDGE_BON_OK_PATH=C:/ECRBridge/BonOK/
+ECR_BRIDGE_BON_ERR_PATH=C:/ECRBridge/BonErr/
+ECR_BRIDGE_FISCAL_CODE=
+RESPONSE_TIMEOUT=15000
+BRIDGE_MODE=live
+LOG_LEVEL=info
+
+# Agent — monitorizare și control remote
+CLOUD_API_URL=https://adresa-aplicatiei-tale.com/api
+CLOUD_API_KEY=cheia-secreta-partajata-cu-cloud
+CLIENT_ID=se-genereaza-automat-la-instalare
+AGENT_ENABLED=true
+HEARTBEAT_INTERVAL=30000
+LOG_BATCH_INTERVAL=60000
+COMMAND_POLL_INTERVAL=10000
+```
+
+> **Notă:** Dacă fișierul `.env` nu există, installerul îl creează automat din `.env.example` și generează un `CLIENT_ID` unic (UUID) pentru această stație. `CLIENT_ID` identifică stația în dashboard-ul de super admin — nu îl modifica după instalare.
+
+> **Notă:** `ECR_BRIDGE_FISCAL_CODE` este opțional. Dacă este setat, va fi inclus în header-ul bonului fiscal (`FISCAL;{fiscalCode}`).
+
+**3. Rulează installerul**
+
+Deschide File Explorer, navighează în folderul `install/` și **dă dublu-click pe `install.bat`**.
+
+Installerul face automat:
+1. Verifică că Node.js este instalat
+2. Instalează dependențele (`npm install`)
+3. Compilează aplicația (`npm run build`)
+4. Generează `.env` cu un `CLIENT_ID` unic (dacă nu există deja)
+5. Înregistrează bridge-ul ca serviciu Windows numit `BongoFiscalBridge`
+6. Pornește serviciul
+
+> Rulează `install.bat` ca **Administrator** (click dreapta → "Run as administrator") pentru ca înregistrarea serviciului Windows să funcționeze.
+
+**4. Verifică că serviciul rulează**
+
+Deschide Task Manager → tab-ul **Services** și caută `BongoFiscalBridge` — statusul trebuie să fie `Running`.
+
+Sau verifică prin linia de comandă:
+
+```cmd
+sc query BongoFiscalBridge
+```
+
+Răspuns așteptat:
+```
+STATE : 4  RUNNING
+```
+
+**5. Testează endpoint-ul**
+
+```cmd
+curl http://localhost:9000/health
+```
+
+Răspuns așteptat:
+```json
+{ "status": "ok", "service": "bongo-fiscal-bridge" }
+```
+
+#### Dezinstalare
+
+Dă dublu-click pe `install/uninstall.bat` (ca Administrator).
+
+---
+
+### Instalare pentru dezvoltare (fără serviciu Windows)
+
+#### Cerințe
 
 - Node.js v18 sau mai recent
 - npm sau yarn
-- PM2 (pentru rulare ca serviciu permanent) - opțional
 
-### Pași de instalare
+#### Pași de instalare
 
 1. Clonează sau descarcă proiectul
 2. Instalează dependențele:
