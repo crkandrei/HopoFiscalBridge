@@ -8,9 +8,7 @@ Acest microserviciu oferă un endpoint HTTP REST pentru generarea și trimiterea
 
 ## 🚀 Instalare
 
-### Instalare pe stația clientului (Windows Service — recomandat)
-
-Acesta este modul standard de instalare pe calculatoarele clienților. Bridge-ul rulează ca serviciu Windows — pornește automat la boot și se repornește singur dacă pică.
+### Instalare pe stația clientului (Windows Service)
 
 #### Cerințe
 
@@ -20,17 +18,13 @@ Acesta este modul standard de instalare pe calculatoarele clienților. Bridge-ul
 
 #### Pași de instalare
 
-**1. Descarcă / clonează proiectul pe stație**
+**1. Descarcă ZIP-ul de pe GitHub Releases**
 
-```
-git clone <url-repo> BongoFiscalBridge
-```
-
-sau copiază folderul `BongoFiscalBridge` direct pe stație (de exemplu în `C:\BongoFiscalBridge`).
+Descarcă cel mai recent `HopoFiscalBridge-vX.X.X.zip` și extrage-l pe stație (ex: `C:\HopoFiscalBridge\`).
 
 **2. Configurează `.env`**
 
-Creează fișierul `.env` în rădăcina proiectului (sau lasă installerul să îl genereze automat la pasul următor). Dacă vrei să îl configurezi manual înainte:
+Dacă vrei să precompletezi configurația înainte de instalare, creează `.env` în folderul extras:
 
 ```env
 PORT=9000
@@ -41,49 +35,34 @@ ECR_BRIDGE_FISCAL_CODE=
 RESPONSE_TIMEOUT=15000
 BRIDGE_MODE=live
 LOG_LEVEL=info
-
-# Agent — monitorizare și control remote
 CLOUD_API_URL=https://adresa-aplicatiei-tale.com/api
-CLOUD_API_KEY=cheia-secreta-partajata-cu-cloud
-CLIENT_ID=se-genereaza-automat-la-instalare
-AGENT_ENABLED=true
-HEARTBEAT_INTERVAL=30000
-LOG_BATCH_INTERVAL=60000
-COMMAND_POLL_INTERVAL=10000
+CLOUD_API_KEY=cheia-secreta
+UPDATE_GITHUB_REPO=owner/HopoFiscalBridge
 ```
 
-> **Notă:** Dacă fișierul `.env` nu există, installerul îl creează automat din `.env.example` și generează un `CLIENT_ID` unic (UUID) pentru această stație. `CLIENT_ID` identifică stația în dashboard-ul de super admin — nu îl modifica după instalare.
-
-> **Notă:** `ECR_BRIDGE_FISCAL_CODE` este opțional. Dacă este setat, va fi inclus în header-ul bonului fiscal (`FISCAL;{fiscalCode}`).
+> Dacă `.env` nu există, installerul îl creează automat cu un `CLIENT_ID` UUID unic.
 
 **3. Rulează installerul**
 
-Deschide File Explorer, navighează în folderul `install/` și **dă dublu-click pe `install.bat`**.
+Deschide PowerShell **ca Administrator**, navighează în folderul extras și rulează:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File install\install.ps1
+```
 
 Installerul face automat:
-1. Verifică că Node.js este instalat
-2. Instalează dependențele (`npm install`)
-3. Compilează aplicația (`npm run build`)
-4. Generează `.env` cu un `CLIENT_ID` unic (dacă nu există deja)
-5. Înregistrează bridge-ul ca serviciu Windows numit `BongoFiscalBridge`
-6. Pornește serviciul
-
-> Rulează `install.bat` ca **Administrator** (click dreapta → "Run as administrator") pentru ca înregistrarea serviciului Windows să funcționeze.
+1. Verifică Node.js v18+
+2. Generează `.env` cu `CLIENT_ID` unic (dacă nu există)
+3. Înregistrează serviciul Windows `HopoFiscalBridge` via NSSM
+4. Pornește serviciul
 
 **4. Verifică că serviciul rulează**
 
-Deschide Task Manager → tab-ul **Services** și caută `BongoFiscalBridge` — statusul trebuie să fie `Running`.
-
-Sau verifică prin linia de comandă:
-
 ```cmd
-sc query BongoFiscalBridge
+sc query HopoFiscalBridge
 ```
 
-Răspuns așteptat:
-```
-STATE : 4  RUNNING
-```
+Răspuns așteptat: `STATE : 4  RUNNING`
 
 **5. Testează endpoint-ul**
 
@@ -91,14 +70,11 @@ STATE : 4  RUNNING
 curl http://localhost:9000/health
 ```
 
-Răspuns așteptat:
-```json
-{ "status": "ok", "service": "bongo-fiscal-bridge" }
-```
-
 #### Dezinstalare
 
-Dă dublu-click pe `install/uninstall.bat` (ca Administrator).
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File install\uninstall.ps1
+```
 
 ---
 
@@ -169,51 +145,35 @@ npm run build
 npm start
 ```
 
-### Rulare cu PM2 (Recomandat pentru producție)
+## 🚀 Lansare versiune nouă (pentru developer)
 
-PM2 permite rularea aplicației ca serviciu permanent cu restart automat.
+### Cerințe
 
-1. Instalează PM2 global (dacă nu este deja instalat):
+- `gh` CLI instalat și autentificat (`gh auth login`)
+- `install/nssm.exe` prezent local (descarcă de pe https://nssm.cc/download)
 
-```bash
-npm install -g pm2
-```
-
-2. Compilează proiectul:
+### Pași
 
 ```bash
-npm run build
+npm run release -- --version 1.2.0
 ```
 
-3. Pornește aplicația cu PM2:
+Scriptul face automat:
+1. `npm install` + `npm run build`
+2. Creează ZIP cu `dist/`, `node_modules/`, scripturi instalare
+3. Publică pe GitHub Releases
 
-```bash
-npm run pm2:start
+## 🔄 Auto-update pe stații existente
+
+Trimite comanda `update` de la cloud cu payload:
+
+```json
+{ "version": "1.2.0" }
 ```
 
-4. Verifică statusul:
+Stația descarcă ZIP-ul, înlocuiește fișierele și repornește serviciul automat. `.env` (configurația clientului) nu este suprascris.
 
-```bash
-pm2 status
-```
-
-5. Vezi logurile:
-
-```bash
-npm run pm2:logs
-```
-
-6. Oprește aplicația:
-
-```bash
-npm run pm2:stop
-```
-
-7. Restart aplicație:
-
-```bash
-npm run pm2:restart
-```
+---
 
 ## 📡 API Endpoints
 
