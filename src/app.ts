@@ -104,7 +104,7 @@ async function initializeApp(): Promise<void> {
   const modeLabel = config.bridgeMode === 'live' ? 'LIVE' : 'TEST';
   const modeDescription = config.bridgeMode === 'live' ? 'Fiscal receipts' : 'Non-fiscal test receipts';
   logger.info(`Bridge mode: ${modeLabel} - ${modeDescription}`);
-  logger.info('Application initialized successfully');
+  logger.info('Application initialized successfully (v1.0.2)');
 }
 
 /**
