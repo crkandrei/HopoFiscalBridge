@@ -97,8 +97,9 @@ Single service responsible for all phone-home communication. Starts alongside th
   "uptime": 3600,
   "bridgeMode": "live",
   "lastPrintAt": "2026-03-19T10:00:00Z",
-  "printCountSinceStart": 42,
-  "errorCountSinceStart": 1
+  "printCount": 42,
+  "zReportCount": 1,
+  "errorCount": 3
 }
 ```
 
@@ -112,26 +113,34 @@ Single service responsible for all phone-home communication. Starts alongside th
   ]
 }
 ```
-Logs are buffered in memory and flushed. Local file logs (Winston) remain as-is and serve as backup.
 
-**Command poll** — GET `/bridges/commands/:clientId` every 10s:
+**Log buffer rules:**
+- Maximum 500 entries in memory. When full, oldest entries are dropped (drop-oldest policy).
+- Buffer is flushed (cleared) after each successful POST to cloud.
+- If the POST fails, entries are retained and retried on the next batch interval.
+- Integration with Winston: a custom Winston transport (`AgentTransport`) pushes each log entry into the buffer. This means all existing `logger.info/warn/error` calls are automatically captured without changes at call sites.
+
+**Command poll** — GET `/bridges/commands/:clientId` every 10s.
+
+The cloud returns `204 No Content` when there is no pending command. The agent skips execution on `204`. Any `2xx` response with a body is treated as a command:
 ```json
 { "commandId": "abc123", "command": "restart", "payload": null }
 // or
 { "commandId": "abc123", "command": "set_config", "payload": { "BRIDGE_MODE": "test" } }
-// or
-{ "commandId": null, "command": null, "payload": null }
 ```
+
 After executing a command, the bridge ACKs with POST `/bridges/commands/:clientId/ack`:
 ```json
 { "commandId": "abc123", "success": true, "message": "Restarting..." }
 ```
 
+**Ordering for `restart` and `set_config`:** The ACK request is sent and awaited with a 3s timeout. If the ACK succeeds within 3s, the process exits cleanly. If it fails or times out, the process exits anyway (best-effort ACK — restart must not be blocked by network issues). The ACK call bypasses the normal exponential backoff mechanism and is always attempted immediately, regardless of prior failure state.
+
 **Resilience:**
-- All HTTP calls have a 5s timeout
-- Failed calls are silently swallowed and logged locally — the core printing loop is never blocked
-- Exponential backoff on repeated failures (max 5 min between retries)
-- `AGENT_ENABLED=false` disables the agent entirely (useful for development)
+- All HTTP calls have a 5s timeout.
+- Failed calls are silently swallowed and logged locally — the core printing loop is never blocked.
+- Exponential backoff on repeated failures: initial delay 5s, multiplier 2x, max delay 5 min (300s). Backoff applies per-endpoint independently. Backoff resets to 5s after a successful call on that endpoint.
+- `AGENT_ENABLED=false` disables the agent entirely (useful for development). **Note:** this setting can also be toggled remotely via `set_config` — see the important caveat in the `set_config` section below.
 
 ---
 
@@ -141,19 +150,41 @@ Executes commands received from the cloud.
 
 | Command | Action |
 |---------|--------|
-| `restart` | Calls `process.exit(0)` — Windows Service wrapper auto-restarts the process |
-| `set_config` | Writes new values to `.env` file, then restarts |
+| `restart` | Sends ACK, awaits response, then calls `process.exit(0)` — Windows Service wrapper auto-restarts |
+| `set_config` | Validates keys and values, writes to `.env`, sends ACK, awaits response, then calls `process.exit(0)` |
 
-Only a whitelist of config keys can be changed remotely:
-- `BRIDGE_MODE`
-- `RESPONSE_TIMEOUT`
-- `LOG_LEVEL`
-- `AGENT_ENABLED`
-- `HEARTBEAT_INTERVAL`
-- `LOG_BATCH_INTERVAL`
-- `COMMAND_POLL_INTERVAL`
+**Whitelist of remotely-configurable keys and their allowed values:**
 
-Sensitive keys (`CLOUD_API_KEY`, `CLIENT_ID`, ECR paths) cannot be changed remotely.
+| Key | Allowed values |
+|-----|---------------|
+| `BRIDGE_MODE` | `"live"` or `"test"` only |
+| `RESPONSE_TIMEOUT` | Positive integer (ms), min 5000, max 60000 — same bounds enforced by `config.ts` at startup |
+| `LOG_LEVEL` | `"info"`, `"warn"`, or `"error"` only |
+| `HEARTBEAT_INTERVAL` | Positive integer (ms), min 5000 |
+| `LOG_BATCH_INTERVAL` | Positive integer (ms), min 10000 |
+| `COMMAND_POLL_INTERVAL` | Positive integer (ms), min 5000 |
+
+**`AGENT_ENABLED` is intentionally excluded from the remote whitelist.** Allowing the cloud to set `AGENT_ENABLED=false` remotely would permanently sever the communication channel with no way to re-enable it without local access — defeating the purpose of remote control. Disabling the agent requires local `.env` edits only.
+
+Sensitive keys (`CLOUD_API_KEY`, `CLIENT_ID`, all ECR paths) cannot be changed remotely. Any request containing a non-whitelisted key is rejected entirely, and an ACK with `success: false` is returned.
+
+---
+
+### `src/services/metrics.service.ts`
+
+Simple in-memory counters read by AgentService for heartbeats:
+
+```typescript
+export const metrics = {
+  printCount: 0,        // successful receipt prints
+  zReportCount: 0,      // successful Z reports
+  errorCount: 0,        // any failed operation (print or Z-report)
+  lastPrintAt: null as Date | null,
+};
+```
+
+`PrintController` increments `printCount` on success and `errorCount` on failure.
+`Z-ReportController` increments `zReportCount` on success and `errorCount` on failure.
 
 ---
 
@@ -180,22 +211,13 @@ install/
 - Restart on failure: Yes (after 5s delay)
 - Runs as: Local System
 
----
+**ECR directory initialization at startup:**
 
-## Metrics Tracked In-Memory
+The existing `app.ts` exits with code `1` if required ECR directories are missing. Under the Windows Service restart loop, a missing directory at boot would cause rapid repeated crashes. To prevent this, the startup sequence is changed:
 
-The core service increments simple counters that the AgentService reads for heartbeats:
-
-```typescript
-// src/services/metrics.service.ts
-export const metrics = {
-  printCount: 0,
-  errorCount: 0,
-  lastPrintAt: null as Date | null,
-};
-```
-
-PrintController and Z-ReportController increment these after each operation.
+- Directory init is retried up to 5 times with a 3s delay between attempts before giving up and exiting.
+- This tolerates transient delays (e.g., a mapped network drive not yet mounted at boot).
+- If all retries fail, the service exits and Windows restarts it after 5s as normal — the restart loop is acceptable because it will self-heal once the drive is available.
 
 ---
 
@@ -203,11 +225,15 @@ PrintController and Z-ReportController increment these after each operation.
 
 | Scenario | Behavior |
 |----------|----------|
-| Cloud unreachable | Agent retries with backoff, printing continues normally |
-| Command poll fails | Logged locally, next poll attempted after interval |
-| `set_config` with invalid key | Rejected, ACK sent with `success: false` |
+| Cloud unreachable | Agent retries with exponential backoff (5s→10s→…→5min), printing continues normally |
+| Command poll returns 204 | Agent skips execution, polls again after interval |
+| `set_config` with invalid/non-whitelisted key | Rejected, ACK sent with `success: false`, no restart |
+| `set_config` with invalid value | Rejected, ACK sent with `success: false`, no restart |
+| ACK fails/times out before restart | Restart proceeds anyway after 3s (best-effort ACK) |
+| Log buffer full (500 entries) | Oldest entries dropped, new ones accepted |
 | Service crashes | Windows Service restarts it automatically after 5s |
 | Machine reboots | Windows Service starts automatically on boot |
+| ECR dirs missing at boot | Retried up to 5x with 3s delay before exit |
 | `.env` missing at install | `generate-env.js` creates it with safe defaults |
 
 ---
@@ -215,9 +241,11 @@ PrintController and Z-ReportController increment these after each operation.
 ## Security
 
 - All requests to cloud include `Authorization: Bearer <CLOUD_API_KEY>` header
-- `CLIENT_ID` is read-only after generation
-- Whitelist enforced on `set_config` — no arbitrary env key injection
+- `CLIENT_ID` is read-only after generation (not on remote whitelist)
+- Whitelist enforced on `set_config` — covers both key names AND value validation
+- `AGENT_ENABLED` cannot be disabled remotely (prevents self-silencing)
 - HTTPS only for cloud communication
+- Sensitive keys (ECR paths, API key, CLIENT_ID) not remotely configurable
 
 ---
 
@@ -227,22 +255,23 @@ PrintController and Z-ReportController increment these after each operation.
 BongoFiscalBridge/
   src/
     services/
-      agent.service.ts        ← NEW
+      agent.service.ts            ← NEW
       commandExecutor.service.ts  ← NEW
-      metrics.service.ts      ← NEW
-      ecrBridge.service.ts    ← existing (minor update: increment metrics)
+      metrics.service.ts          ← NEW
+      agentTransport.ts           ← NEW (custom Winston transport)
+      ecrBridge.service.ts        ← existing (no changes needed)
     controllers/
-      print.controller.ts     ← existing (minor update: increment metrics)
-      z-report.controller.ts  ← existing (minor update: increment metrics)
-    app.ts                    ← existing (minor update: start AgentService)
+      print.controller.ts         ← existing (add metrics increment)
+      z-report.controller.ts      ← existing (add metrics increment)
+    app.ts                        ← existing (add AgentService start + dir retry logic)
     config/
-      config.ts               ← existing (add new env fields)
+      config.ts                   ← existing (add new env fields)
   install/
-    install.bat               ← NEW
-    uninstall.bat             ← NEW
-    setup.js                  ← NEW
-    generate-env.js           ← NEW
-  .env.example                ← update with new fields
+    install.bat                   ← NEW
+    uninstall.bat                 ← NEW
+    setup.js                      ← NEW
+    generate-env.js               ← NEW
+  .env.example                    ← update with new fields
 ```
 
 ---
@@ -250,12 +279,13 @@ BongoFiscalBridge/
 ## Implementation Order
 
 1. `metrics.service.ts` — simple counters
-2. `config.ts` updates — new env fields
-3. `agent.service.ts` — heartbeat + log batch + command poll
-4. `commandExecutor.service.ts` — restart + set_config
-5. Update controllers to increment metrics
-6. Update `app.ts` to start AgentService
-7. `install/` scripts — Windows service wrapper
+2. `config.ts` updates — new env fields with validation
+3. `agentTransport.ts` — custom Winston transport that pushes to log buffer
+4. `agent.service.ts` — heartbeat + log batch (with buffer cap) + command poll (204 handling)
+5. `commandExecutor.service.ts` — restart + set_config (ACK-before-exit, value validation)
+6. Update controllers to increment metrics
+7. Update `app.ts` — start AgentService, add dir init retry logic
+8. `install/` scripts — Windows service wrapper
 
 ---
 
@@ -263,4 +293,4 @@ BongoFiscalBridge/
 
 - `node-windows` — Windows service registration
 - `uuid` — CLIENT_ID generation at install time
-- `axios` or native `fetch` (Node 18+) — HTTP calls to cloud (prefer native fetch, already available)
+- Native `fetch` (Node 18+) — HTTP calls to cloud (already available, no new dependency)
