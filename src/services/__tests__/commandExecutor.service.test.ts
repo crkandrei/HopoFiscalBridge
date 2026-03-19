@@ -164,6 +164,21 @@ describe('CommandExecutor', () => {
       expect(mockExit).not.toHaveBeenCalled();
     });
 
+    it('sends failure ACK if version is not valid semver', async () => {
+      const executorWithRepo = new CommandExecutor(
+        { ...mockConfig, update: { githubRepo: 'owner/HopoFiscalBridge' } },
+        mockExit
+      );
+      await executorWithRepo.execute(
+        { commandId: 'upd-semver', command: 'update', payload: { version: 'invalid-version' } },
+        mockAck
+      );
+      expect(mockAck).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, message: expect.stringContaining('semver') })
+      );
+      expect(mockExit).not.toHaveBeenCalled();
+    });
+
     it('sends failure ACK if githubRepo is not configured', async () => {
       const executorNoRepo = new CommandExecutor(
         { ...mockConfig, update: { githubRepo: '' } },
