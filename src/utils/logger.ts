@@ -2,6 +2,7 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 import { config } from '../config/config';
+import { AgentTransport } from './agentTransport';
 
 // Ensure logs directory exists
 const logsDir = config.logDir;
@@ -37,6 +38,7 @@ export const logger = winston.createLogger({
       maxsize: 5242880, // 5MB
       maxFiles: 5,
     }),
+    new AgentTransport(),
   ],
 });
 
