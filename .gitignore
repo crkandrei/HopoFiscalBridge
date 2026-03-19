@@ -92,3 +92,6 @@ ecosystem.config.js.bak
 *.tmp
 *.temp
 .cache/
+
+# NSSM executable (binary dependency, downloaded from https://nssm.cc/download)
+install/nssm.exe
