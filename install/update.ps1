@@ -1,0 +1,68 @@
+param(
+    [Parameter(Mandatory=$true)] [string]$TempDir,
+    [Parameter(Mandatory=$true)] [string]$InstallDir
+)
+
+$logDir = Join-Path $InstallDir "logs"
+$logFile = Join-Path $logDir "update.log"
+
+function Write-Log {
+    param([string]$msg)
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
+    Write-Host $line
+    if (!(Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+    Add-Content -Path $logFile -Value $line
+}
+
+Write-Log "=== Update started. TempDir=$TempDir InstallDir=$InstallDir ==="
+
+# 1. Stop the service immediately
+Write-Log "Stopping HopoFiscalBridge service..."
+& nssm stop HopoFiscalBridge 2>&1 | Out-Null
+
+# 2. Wait for service to reach Stopped state (max 15s)
+$timeout = 15
+$elapsed = 0
+while ($elapsed -lt $timeout) {
+    $status = (Get-Service -Name HopoFiscalBridge -ErrorAction SilentlyContinue).Status
+    if ($status -eq 'Stopped') { break }
+    Start-Sleep -Seconds 1
+    $elapsed++
+}
+if ($elapsed -ge $timeout) {
+    Write-Log "WARNING: Service did not stop within ${timeout}s. Forcing stop."
+    & nssm stop HopoFiscalBridge confirm 2>&1 | Out-Null
+}
+Write-Log "Service stopped."
+
+# 3. Replace dist\ and node_modules\
+try {
+    Write-Log "Copying dist\..."
+    Copy-Item -Path "$TempDir\dist" -Destination "$InstallDir\dist" -Recurse -Force
+    Write-Log "Copying node_modules\..."
+    Copy-Item -Path "$TempDir\node_modules" -Destination "$InstallDir\node_modules" -Recurse -Force
+    Write-Log "Copying package.json..."
+    Copy-Item -Path "$TempDir\package.json" -Destination "$InstallDir\package.json" -Force
+    Write-Log "Files replaced successfully."
+} catch {
+    Write-Log "ERROR during file copy: $_"
+}
+
+# 4. Start the service
+Write-Log "Starting HopoFiscalBridge service..."
+& nssm start HopoFiscalBridge 2>&1 | Out-Null
+Write-Log "Service start issued."
+
+# 5. Cleanup temp dir
+try {
+    Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+    $zipPath = "$TempDir.zip"
+    Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+    Write-Log "Temp files cleaned up."
+} catch {
+    Write-Log "WARNING: cleanup failed: $_"
+}
+
+Write-Log "=== Update complete ==="
