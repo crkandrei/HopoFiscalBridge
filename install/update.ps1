@@ -20,7 +20,10 @@ $nssmExe = Join-Path $PSScriptRoot "nssm.exe"
 
 Write-Log "=== Update started. TempDir=$TempDir InstallDir=$InstallDir ==="
 
-# 1. Stop the service immediately
+# Wait for NSSM to finish its own restart cycle before we try to stop the service
+Start-Sleep -Seconds 5
+
+# 1. Stop the service
 Write-Log "Stopping HopoFiscalBridge service..."
 & $nssmExe stop HopoFiscalBridge 2>&1 | Out-Null
 
