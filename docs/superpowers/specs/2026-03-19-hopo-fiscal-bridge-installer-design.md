@@ -78,43 +78,54 @@ Steps:
 1. `npm install`
 2. `npm run build`
 3. Create `HopoFiscalBridge-v{version}.zip` with the structure above
-4. Also create `HopoFiscalBridge-latest.zip` (same content, stable filename for auto-update)
+4. Also create `HopoFiscalBridge-latest.zip` (same content, stable filename)
 5. `gh release create v{version} HopoFiscalBridge-v{version}.zip HopoFiscalBridge-latest.zip`
 
-**Stable download URL used by auto-update:**
-```
-https://github.com/{owner}/HopoFiscalBridge/releases/latest/download/HopoFiscalBridge-latest.zip
-```
+**URL-uri de download:**
+- Versioned (recomandat în comanda `update`): `releases/download/v{version}/HopoFiscalBridge-v{version}.zip`
+- Latest (fallback): `releases/latest/download/HopoFiscalBridge-latest.zip`
+
+**Notă:** URL-ul `/latest/` poate crea o fereastră de race condition dacă o stație primește comanda `update` exact în timpul upload-ului pe GitHub. De aceea, comanda `update` trimisă de cloud **trebuie să specifice întotdeauna o versiune explicită** în payload. URL-ul `/latest/` este rezervat pentru uz manual de către developer.
 
 ---
 
 ## Component 2: PowerShell Installer
 
+### Notă despre ExecutionPolicy
+
+Pe Windows, politica de execuție PowerShell este `Restricted` by default. Toate scripturile `.ps1` (inclusiv `update.ps1` spawnat programatic) trebuie invocate cu:
+```
+powershell.exe -ExecutionPolicy Bypass -File script.ps1
+```
+Aceasta nu schimbă politica persistentă a stației — se aplică doar procesului curent.
+
 ### install.ps1
 
-Installation directory: `C:\HopoFiscalBridge\` (or wherever the ZIP was extracted)
+Installation directory: `C:\HopoFiscalBridge\` (sau oriunde a fost extras ZIP-ul)
+
+`install.ps1` trebuie rulat din rădăcina directorului de instalare (nu din subdirectorul `install\`), pentru că `generate-env.js` folosește `__dirname` relativ la a scrie `.env` în directorul părinte.
 
 Steps:
-1. Check Node.js ≥ v18 is installed; abort with message if not
-2. Run `node install\generate-env.js` → creates `.env` with unique UUID `CLIENT_ID`
-3. Register service via NSSM:
+1. Verifică că PowerShell rulează ca Administrator; abort dacă nu
+2. Verifică Node.js ≥ v18 instalat; abort cu mesaj clar dacă nu
+3. Dacă serviciul `HopoFiscalBridge` există deja: `nssm stop` + `nssm remove confirm` (re-instalare curată)
+4. Rulează `node install\generate-env.js` (din rădăcina instalării) → creează `.env` cu UUID `CLIENT_ID` unic
+5. Înregistrează serviciul via NSSM:
    ```
-   nssm install HopoFiscalBridge node "C:\HopoFiscalBridge\dist\app.js"
-   nssm set HopoFiscalBridge AppDirectory "C:\HopoFiscalBridge"
-   nssm set HopoFiscalBridge AppEnvironmentExtra NODE_ENV=production
-   nssm set HopoFiscalBridge Start SERVICE_AUTO_START
-   nssm start HopoFiscalBridge
+   .\install\nssm.exe install HopoFiscalBridge node "$installDir\dist\app.js"
+   .\install\nssm.exe set HopoFiscalBridge AppDirectory "$installDir"
+   .\install\nssm.exe set HopoFiscalBridge AppEnvironmentExtra NODE_ENV=production
+   .\install\nssm.exe set HopoFiscalBridge Start SERVICE_AUTO_START
+   .\install\nssm.exe start HopoFiscalBridge
    ```
-4. Print success message with verification command
-
-Must be run as Administrator (NSSM requires elevated privileges to register services).
+6. Afișează mesaj de succes cu comanda de verificare: `sc query HopoFiscalBridge`
 
 ### uninstall.ps1
 
 Steps:
 1. `nssm stop HopoFiscalBridge`
 2. `nssm remove HopoFiscalBridge confirm`
-3. Optional: prompt to delete installation directory
+3. Prompt opțional pentru ștergerea directorului de instalare
 
 ---
 
@@ -131,71 +142,83 @@ case 'update':
 
 ### handleUpdate flow
 
-**Payload:** `{ version?: string }` (optional, defaults to "latest")
+**Payload:** `{ version: string }` — versiunea este **obligatorie** (nu se folosește `/latest/` în producție)
 
-1. Determine download URL:
-   - If version specified: `releases/download/v{version}/HopoFiscalBridge-v{version}.zip`
-   - Otherwise: `releases/latest/download/HopoFiscalBridge-latest.zip`
-2. Download ZIP to `C:\temp\hopo-update-{timestamp}.zip`
-3. Extract ZIP to `C:\temp\hopo-update-{timestamp}\`
-4. Resolve install directory from `process.cwd()`
-5. Spawn `update.ps1` detached with args: `[tempDir, installDir]`
+1. Construiește URL: `releases/download/v{version}/HopoFiscalBridge-v{version}.zip`
+2. Descarcă ZIP în `os.tmpdir()\hopo-update-{timestamp}.zip` (folosește `os.tmpdir()`, nu `C:\temp\`)
+3. Extrage ZIP în `os.tmpdir()\hopo-update-{timestamp}\`
+4. Rezolvă directorul de instalare din `path.dirname(path.dirname(__filename))` (directorul părinte al `dist/`) — mai robust decât `process.cwd()` în context de Windows Service
+5. Spawn `update.ps1` **complet detașat**:
+   ```typescript
+   const child = spawn('powershell.exe', [
+     '-ExecutionPolicy', 'Bypass',
+     '-File', path.join(installDir, 'install', 'update.ps1'),
+     tempDir, installDir
+   ], { detached: true, stdio: 'ignore' });
+   child.unref(); // obligatoriu — eliberează referința pentru ca procesul părinte să poată ieși
+   ```
 6. ACK `{ success: true, message: "Update initiated, service restarting..." }`
 7. `process.exit(0)`
 
-**Why detached spawn?** The service cannot replace its own files while running. The update script runs independently after the service exits.
+**De ce detached + unref?** Serviciul nu poate înlocui propriile fișiere în timp ce rulează. `child.unref()` este obligatoriu pe Windows: fără el, procesul Node.js nu iese cu adevărat atât timp cât există referințe la procese copil, chiar dacă `detached: true`.
 
 ### update.ps1
 
 Parameters: `$TempDir`, `$InstallDir`
 
 Steps:
-1. Wait for `HopoFiscalBridge` service to reach `Stopped` state (poll every 1s, max 15s)
-2. `nssm stop HopoFiscalBridge` (safety stop in case still running)
-3. Copy `$TempDir\dist\` → `$InstallDir\dist\` (overwrite)
-4. Copy `$TempDir\node_modules\` → `$InstallDir\node_modules\` (overwrite)
-5. Copy `$TempDir\package.json` → `$InstallDir\package.json`
-6. `nssm start HopoFiscalBridge`
-7. Delete `$TempDir` (cleanup)
-8. Log result to `$InstallDir\logs\update.log`
+1. `nssm stop HopoFiscalBridge` (oprire imediată, nu așteptare)
+2. Polling: verifică starea serviciului la fiecare 1s, max 15s, până ajunge la `Stopped`
+3. Dacă timeout → forțează oprire și continuă
+4. Copiază `$TempDir\dist\` → `$InstallDir\dist\` (overwrite)
+5. Copiază `$TempDir\node_modules\` → `$InstallDir\node_modules\` (overwrite)
+6. Copiază `$TempDir\package.json` → `$InstallDir\package.json`
+7. `nssm start HopoFiscalBridge`
+8. Creează `$InstallDir\logs\` dacă nu există (`New-Item -ItemType Directory -Force`)
+9. Scrie rezultatul în `$InstallDir\logs\update.log`
+10. Șterge `$TempDir` (cleanup)
 
-**Note:** `.env` is never overwritten during update — client configuration is preserved.
+**Notă:** `.env` nu este suprascris la update — configurația clientului este păstrată.
+
+**Notă de securitate:** ZIP-ul este descărcat de pe un repo privat GitHub via HTTPS. Nu se face verificare de checksum în această versiune — risc acceptabil pentru un repo privat. Dacă repo-ul devine public în viitor, se adaugă verificare SHA256.
 
 ---
 
 ## Component 4: README Updates
 
-The README for HopoFiscalBridge will document:
-1. Installation section updated to describe PowerShell installer (replaces old `install.bat` section)
-2. New "Releasing a new version" section for the developer
-3. New "Auto-update" section explaining the `update` cloud command
-4. Removal of PM2 references (Windows Service is the only supported production mode)
+README-ul pentru HopoFiscalBridge va documenta:
+1. Secțiunea de instalare actualizată cu `install.ps1` (înlocuiește `install.bat`)
+2. Secțiune nouă "Releasing a new version" pentru developer
+3. Secțiune nouă "Auto-update" care explică comanda `update` din cloud
+4. Eliminarea referințelor PM2 (Windows Service este singurul mod de producție suportat)
 
 ---
 
 ## Repository Migration
 
-- Source: `hopo-fiscal-version` branch of `BongoFiscalBridge`
-- Target: new repository `HopoFiscalBridge`
-- The `BongoFiscalBridge` main branch is **not affected** — it remains as-is for its dedicated client
+- Sursă: branch `hopo-fiscal-version` din `BongoFiscalBridge`
+- Destinație: repo nou `HopoFiscalBridge`
+- Branch-ul `main` al `BongoFiscalBridge` **nu este afectat** — rămâne neschimbat pentru clientul dedicat
 
 ---
 
 ## Error Handling
 
-| Scenario | Behavior |
-|----------|----------|
-| Node.js not installed | installer aborts with clear message |
-| Service already exists at install | installer stops existing service, reinstalls |
-| Download fails during update | ACK with failure, no files changed |
-| Update script times out waiting for service stop | Force stop, proceed with update |
-| update.ps1 copy fails | Log error to update.log, attempt service restart anyway |
+| Scenariu | Comportament |
+|----------|-------------|
+| Node.js nu este instalat | `install.ps1` abort cu mesaj clar |
+| Serviciul există deja la instalare | `install.ps1` oprește și dezinstalează serviciul existent, apoi reinstalează |
+| Download eșuat la update | ACK cu failure, niciun fișier nu este modificat |
+| Timeout la așteptarea opririi serviciului | Forțează oprire, continuă cu înlocuirea fișierelor |
+| Copiere fișiere eșuată în `update.ps1` | Loghează eroarea în `update.log`, încearcă `nssm start` indiferent |
+| `logs/` nu există la scriere log | `New-Item -Force` creează directorul înainte de scriere |
 
 ---
 
 ## Out of Scope
 
-- Automatic rollback on failed update (future consideration)
-- Delta updates (only full ZIP replacement)
-- Windows installer wizard (not needed for remote installation)
-- Bundling Node.js runtime (Node.js assumed present on all stations)
+- Rollback automat la update eșuat (considerație viitoare)
+- Delta updates (doar înlocuire completă ZIP)
+- Windows installer wizard (nu e necesar pentru instalare remote)
+- Bundling Node.js runtime (Node.js este prezent pe toate stațiile)
+- Verificare SHA256 a ZIP-ului (adăugată dacă repo-ul devine public)
