@@ -135,6 +135,11 @@ export class CommandExecutor {
       return;
     }
 
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      await ack({ commandId: cmd.commandId, success: false, message: 'version must be semver format (e.g. 1.2.0)' });
+      return;
+    }
+
     const githubRepo = this.cfg.update?.githubRepo;
     if (!githubRepo) {
       await ack({
@@ -163,6 +168,8 @@ export class CommandExecutor {
       zip.extractAllTo(extractDir, true);
     } catch (err) {
       logger.error('Update download/extract failed', { error: (err as Error).message });
+      try { fs.unlinkSync(zipPath); } catch {}
+      try { fs.rmdirSync(extractDir, { recursive: true }); } catch {}
       await ack({ commandId: cmd.commandId, success: false, message: `Update failed: ${(err as Error).message}` });
       return;
     }

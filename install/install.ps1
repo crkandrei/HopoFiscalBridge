@@ -34,14 +34,12 @@ if ($existing) {
 
 # 3. Generate .env (only if it doesn't exist yet)
 Write-Host "Generating configuration..."
-Push-Location $InstallDir
-node install\generate-env.js
+$generateEnvScript = Join-Path $PSScriptRoot "generate-env.js"
+node $generateEnvScript
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to generate .env configuration"
-    Pop-Location
     exit 1
 }
-Pop-Location
 
 # 4. Register service via NSSM
 $nssmExe = "$PSScriptRoot\nssm.exe"

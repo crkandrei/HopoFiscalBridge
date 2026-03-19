@@ -16,11 +16,13 @@ function Write-Log {
     Add-Content -Path $logFile -Value $line
 }
 
+$nssmExe = Join-Path $PSScriptRoot "nssm.exe"
+
 Write-Log "=== Update started. TempDir=$TempDir InstallDir=$InstallDir ==="
 
 # 1. Stop the service immediately
 Write-Log "Stopping HopoFiscalBridge service..."
-& nssm stop HopoFiscalBridge 2>&1 | Out-Null
+& $nssmExe stop HopoFiscalBridge 2>&1 | Out-Null
 
 # 2. Wait for service to reach Stopped state (max 15s)
 $timeout = 15
@@ -33,7 +35,7 @@ while ($elapsed -lt $timeout) {
 }
 if ($elapsed -ge $timeout) {
     Write-Log "WARNING: Service did not stop within ${timeout}s. Forcing stop."
-    & nssm stop HopoFiscalBridge confirm 2>&1 | Out-Null
+    & $nssmExe stop HopoFiscalBridge confirm 2>&1 | Out-Null
 }
 Write-Log "Service stopped."
 
@@ -52,7 +54,7 @@ try {
 
 # 4. Start the service
 Write-Log "Starting HopoFiscalBridge service..."
-& nssm start HopoFiscalBridge 2>&1 | Out-Null
+& $nssmExe start HopoFiscalBridge 2>&1 | Out-Null
 Write-Log "Service start issued."
 
 # 5. Cleanup temp dir

@@ -22,6 +22,8 @@ Acest microserviciu oferă un endpoint HTTP REST pentru generarea și trimiterea
 
 Descarcă cel mai recent `HopoFiscalBridge-vX.X.X.zip` și extrage-l pe stație (ex: `C:\HopoFiscalBridge\`).
 
+> ZIP-ul include `nssm.exe` (service manager) — nu trebuie instalat separat.
+
 **2. Configurează `.env`**
 
 Dacă vrei să precompletezi configurația înainte de instalare, creează `.env` în folderul extras:
