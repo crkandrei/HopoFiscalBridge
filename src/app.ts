@@ -4,6 +4,7 @@ import { config } from './config/config';
 import logger from './utils/logger';
 import { ensureDirectoryExists } from './utils/fileUtils';
 import printRoutes from './routes/print.routes';
+import { agentService } from './services/agent.service';
 
 // Create Express app
 const app = express();
@@ -69,47 +70,49 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
  * Initialize application
  * Ensures all required directories exist
  */
-function initializeApp(): void {
+async function initializeApp(): Promise<void> {
   logger.info('Initializing application...');
 
-  // Ensure ECR Bridge directories exist
   const directories = [
     config.ecrBridge.bonPath,
     config.ecrBridge.bonOkPath,
     config.ecrBridge.bonErrPath,
   ];
 
-  let allDirectoriesOk = true;
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY_MS = 3000;
+
   for (const dir of directories) {
-    if (!ensureDirectoryExists(dir)) {
-      allDirectoriesOk = false;
-      logger.error(`Failed to initialize directory: ${dir}`);
-    } else {
-      logger.info(`Directory ready: ${dir}`);
+    let success = false;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      if (ensureDirectoryExists(dir)) {
+        logger.info(`Directory ready: ${dir}`);
+        success = true;
+        break;
+      }
+      logger.warn(`Directory not ready (attempt ${attempt}/${MAX_RETRIES}): ${dir}`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
+    if (!success) {
+      logger.error(`Failed to initialize directory after ${MAX_RETRIES} attempts: ${dir}`);
+      process.exit(1);
     }
   }
 
-  if (!allDirectoriesOk) {
-    logger.error('Some directories failed to initialize');
-    process.exit(1);
-  }
-
-  // Log bridge mode
   const modeLabel = config.bridgeMode === 'live' ? 'LIVE' : 'TEST';
   const modeDescription = config.bridgeMode === 'live' ? 'Fiscal receipts' : 'Non-fiscal test receipts';
   logger.info(`Bridge mode: ${modeLabel} - ${modeDescription}`);
-
   logger.info('Application initialized successfully');
 }
 
 /**
  * Start the server
  */
-function startServer(): void {
-  // Initialize directories
-  initializeApp();
+async function startServer(): Promise<void> {
+  await initializeApp();
 
-  // Start listening
   const server = app.listen(config.port, () => {
     logger.info(`Server started on port ${config.port}`, {
       port: config.port,
@@ -118,9 +121,11 @@ function startServer(): void {
     });
   });
 
-  // Graceful shutdown
+  agentService.start();
+
   process.on('SIGTERM', () => {
     logger.info('SIGTERM received, shutting down gracefully');
+    agentService.stop();
     server.close(() => {
       logger.info('Server closed');
       process.exit(0);
@@ -129,6 +134,7 @@ function startServer(): void {
 
   process.on('SIGINT', () => {
     logger.info('SIGINT received, shutting down gracefully');
+    agentService.stop();
     server.close(() => {
       logger.info('Server closed');
       process.exit(0);
@@ -137,7 +143,10 @@ function startServer(): void {
 }
 
 // Start the server
-startServer();
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
 
 export default app;
 
