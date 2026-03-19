@@ -44,7 +44,7 @@ if ($LASTEXITCODE -ne 0) {
 # 4. Register service via NSSM
 $nssmExe = "$PSScriptRoot\nssm.exe"
 $nodeExe = (Get-Command node).Source
-$appScript = Join-Path $InstallDir "dist" "app.js"
+$appScript = Join-Path (Join-Path $InstallDir "dist") "app.js"
 
 Write-Host "Registering Windows service..."
 & $nssmExe install HopoFiscalBridge "$nodeExe" "$appScript"
