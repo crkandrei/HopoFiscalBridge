@@ -3,6 +3,7 @@ import logger from '../utils/logger';
 import { validatePrintRequest } from '../utils/validator';
 import ecrBridgeService from '../services/ecrBridge.service';
 import { config } from '../config/config';
+import { incrementPrintCount, incrementErrorCount } from '../services/metrics.service';
 
 /**
  * Handles POST /print request
@@ -155,7 +156,7 @@ export async function handlePrintRequest(
           filename,
           bridgeMode,
         });
-        
+        incrementPrintCount();
         // Return appropriate success response based on mode
         if (bridgeMode === 'test') {
           res.status(200).json({
@@ -176,7 +177,7 @@ export async function handlePrintRequest(
           details: response.details,
           bridgeMode,
         });
-        
+        incrementErrorCount();
         // Return appropriate error response based on mode
         if (bridgeMode === 'test') {
           res.status(500).json({
@@ -202,7 +203,7 @@ export async function handlePrintRequest(
         error: errorMessage,
         bridgeMode,
       });
-      
+      incrementErrorCount();
       // Return appropriate timeout response based on mode
       if (bridgeMode === 'test') {
         res.status(504).json({

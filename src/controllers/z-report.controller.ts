@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import logger from '../utils/logger';
 import ecrBridgeService from '../services/ecrBridge.service';
 import { config } from '../config/config';
+import { incrementZReportCount, incrementErrorCount } from '../services/metrics.service';
 
 /**
  * Handles POST /z-report request
@@ -51,7 +52,7 @@ export async function handleZReportRequest(
           requestId,
           filename,
         });
-        
+        incrementZReportCount();
         res.status(200).json({
           status: 'success',
           message: 'Z;1',
@@ -63,7 +64,7 @@ export async function handleZReportRequest(
           filename,
           details: response.details,
         });
-        
+        incrementErrorCount();
         res.status(500).json({
           status: 'error',
           message: 'Eroare la generarea raportului Z',
@@ -82,7 +83,7 @@ export async function handleZReportRequest(
         filename,
         error: errorMessage,
       });
-      
+      incrementErrorCount();
       res.status(504).json({
         status: 'error',
         message: 'Timeout la așteptarea răspunsului de la ECR Bridge',
