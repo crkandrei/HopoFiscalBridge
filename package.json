@@ -7,10 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
-    "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop bongo-fiscal-bridge",
-    "pm2:restart": "pm2 restart bongo-fiscal-bridge",
-    "pm2:logs": "pm2 logs bongo-fiscal-bridge",
+    "release": "node scripts/create-release.js",
     "test": "jest",
     "test:watch": "jest --watch"
   },
