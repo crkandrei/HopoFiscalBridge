@@ -36,16 +36,25 @@ if ($existing) {
 Write-Host "Generating configuration..."
 Push-Location $InstallDir
 node install\generate-env.js
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Failed to generate .env configuration"
+    Pop-Location
+    exit 1
+}
 Pop-Location
 
 # 4. Register service via NSSM
 $nssmExe = "$PSScriptRoot\nssm.exe"
 $nodeExe = (Get-Command node).Source
-$appScript = Join-Path $InstallDir "dist\app.js"
+$appScript = Join-Path $InstallDir "dist" "app.js"
 
 Write-Host "Registering Windows service..."
-& $nssmExe install HopoFiscalBridge $nodeExe $appScript
-& $nssmExe set HopoFiscalBridge AppDirectory $InstallDir
+& $nssmExe install HopoFiscalBridge "$nodeExe" "$appScript"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Failed to install service (NSSM exit code: $LASTEXITCODE)"
+    exit 1
+}
+& $nssmExe set HopoFiscalBridge AppDirectory "$InstallDir"
 & $nssmExe set HopoFiscalBridge AppEnvironmentExtra "NODE_ENV=production"
 & $nssmExe set HopoFiscalBridge Start SERVICE_AUTO_START
 

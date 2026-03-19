@@ -13,6 +13,6 @@ Write-Host ""
 $confirm = Read-Host "Delete installation directory? (y/N)"
 if ($confirm -eq 'y' -or $confirm -eq 'Y') {
     $InstallDir = Split-Path -Parent $PSScriptRoot
-    Remove-Item -Path $InstallDir -Recurse -Force
+    Remove-Item -Path "$InstallDir" -Recurse -Force
     Write-Host "Installation directory deleted."
 }
