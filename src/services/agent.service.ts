@@ -62,27 +62,30 @@ export class AgentService {
     this.timers = [];
   }
 
-  private scheduleHeartbeat(): void {
+  private scheduleHeartbeat(delay?: number): void {
     const t = setTimeout(async () => {
+      this.timers = this.timers.filter(x => x !== t);
       await this.sendHeartbeat();
-      this.scheduleHeartbeat();
-    }, this.cfg.agent.heartbeatInterval);
+      this.scheduleHeartbeat(this.heartbeatBackoff.delay);
+    }, delay ?? this.cfg.agent.heartbeatInterval);
     this.timers.push(t);
   }
 
-  private scheduleLogBatch(): void {
+  private scheduleLogBatch(delay?: number): void {
     const t = setTimeout(async () => {
+      this.timers = this.timers.filter(x => x !== t);
       await this.sendLogBatch();
-      this.scheduleLogBatch();
-    }, this.cfg.agent.logBatchInterval);
+      this.scheduleLogBatch(this.logBackoff.delay);
+    }, delay ?? this.cfg.agent.logBatchInterval);
     this.timers.push(t);
   }
 
-  private schedulePoll(): void {
+  private schedulePoll(delay?: number): void {
     const t = setTimeout(async () => {
+      this.timers = this.timers.filter(x => x !== t);
       await this.pollCommands();
-      this.schedulePoll();
-    }, this.cfg.agent.commandPollInterval);
+      this.schedulePoll(this.pollBackoff.delay);
+    }, delay ?? this.cfg.agent.commandPollInterval);
     this.timers.push(t);
   }
 
