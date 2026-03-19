@@ -258,7 +258,8 @@ BongoFiscalBridge/
       agent.service.ts            ← NEW
       commandExecutor.service.ts  ← NEW
       metrics.service.ts          ← NEW
-      agentTransport.ts           ← NEW (custom Winston transport)
+    utils/
+      agentTransport.ts           ← NEW (custom Winston transport, lives in utils/ not services/)
       ecrBridge.service.ts        ← existing (no changes needed)
     controllers/
       print.controller.ts         ← existing (add metrics increment)
