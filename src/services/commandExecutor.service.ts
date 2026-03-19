@@ -178,14 +178,18 @@ export class CommandExecutor {
     const installDir = path.resolve(__dirname, '..', '..');
     const updateScript = path.join(installDir, 'install', 'update.ps1');
 
-    const child = childProcess.spawn(
-      'powershell.exe',
-      ['-ExecutionPolicy', 'Bypass', '-File', updateScript, extractDir, installDir],
-      { detached: true, stdio: 'ignore' }
-    );
-    child.unref();
+    // Use Task Scheduler to run update.ps1 outside the service's Job Object.
+    // Direct spawn() from a Windows Service is killed when the service process exits
+    // because child processes are bound to the same Job Object.
+    const taskName = 'HopoFiscalBridgeUpdate';
+    const psCmd = `powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "${updateScript}" "${extractDir}" "${installDir}"`;
+    try {
+      childProcess.execSync(`schtasks /delete /f /tn "${taskName}"`, { stdio: 'ignore' });
+    } catch { /* ignore if task doesn't exist */ }
+    childProcess.execSync(`schtasks /create /f /tn "${taskName}" /sc once /st 00:00 /tr "${psCmd}" /ru SYSTEM /rl HIGHEST`);
+    childProcess.execSync(`schtasks /run /tn "${taskName}"`);
 
-    logger.info('Update script spawned, exiting', { version, installDir });
+    logger.info('Update task scheduled via schtasks, exiting', { version, installDir });
 
     try {
       await ack({ commandId: cmd.commandId, success: true, message: 'Update initiated, service restarting...' });
