@@ -1,5 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import * as childProcess from 'child_process';
+import AdmZip from 'adm-zip';
 import logger from '../utils/logger';
 import { config as appConfig } from '../config/config';
 
@@ -48,6 +51,9 @@ export class CommandExecutor {
         break;
       case 'set_config':
         await this.handleSetConfig(cmd, ack);
+        break;
+      case 'update':
+        await this.handleUpdate(cmd, ack);
         break;
       default:
         logger.warn('Unknown command received', { command: cmd.command });
@@ -118,6 +124,66 @@ export class CommandExecutor {
       await ack({ commandId: cmd.commandId, success: true, message: 'Config updated, restarting...' });
     } catch (err) {
       logger.warn('ACK failed before restart (best-effort)', { error: (err as Error).message });
+    }
+    this.exitFn(0);
+  }
+
+  private async handleUpdate(cmd: Command, ack: AckFn): Promise<void> {
+    const version = cmd.payload?.version;
+    if (!version) {
+      await ack({ commandId: cmd.commandId, success: false, message: 'version is required in payload' });
+      return;
+    }
+
+    const githubRepo = this.cfg.update?.githubRepo;
+    if (!githubRepo) {
+      await ack({
+        commandId: cmd.commandId,
+        success: false,
+        message: 'UPDATE_GITHUB_REPO is not configured on this station',
+      });
+      return;
+    }
+
+    const url = `https://github.com/${githubRepo}/releases/download/v${version}/HopoFiscalBridge-v${version}.zip`;
+    const timestamp = Date.now();
+    const zipPath = path.join(os.tmpdir(), `hopo-update-${timestamp}.zip`);
+    const extractDir = path.join(os.tmpdir(), `hopo-update-${timestamp}`);
+
+    try {
+      logger.info('Downloading update', { version, url });
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} from ${url}`);
+      }
+      const buffer = await response.arrayBuffer();
+      fs.writeFileSync(zipPath, Buffer.from(buffer));
+
+      const zip = new AdmZip(zipPath);
+      zip.extractAllTo(extractDir, true);
+    } catch (err) {
+      logger.error('Update download/extract failed', { error: (err as Error).message });
+      await ack({ commandId: cmd.commandId, success: false, message: `Update failed: ${(err as Error).message}` });
+      return;
+    }
+
+    // Resolve install root: dist/services/ → ../../
+    const installDir = path.resolve(__dirname, '..', '..');
+    const updateScript = path.join(installDir, 'install', 'update.ps1');
+
+    const child = childProcess.spawn(
+      'powershell.exe',
+      ['-ExecutionPolicy', 'Bypass', '-File', updateScript, extractDir, installDir],
+      { detached: true, stdio: 'ignore' }
+    );
+    child.unref();
+
+    logger.info('Update script spawned, exiting', { version, installDir });
+
+    try {
+      await ack({ commandId: cmd.commandId, success: true, message: 'Update initiated, service restarting...' });
+    } catch (err) {
+      logger.warn('ACK failed before update exit (best-effort)', { error: (err as Error).message });
     }
     this.exitFn(0);
   }

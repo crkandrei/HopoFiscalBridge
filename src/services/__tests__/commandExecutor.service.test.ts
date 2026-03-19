@@ -1,7 +1,11 @@
 import { CommandExecutor } from '../commandExecutor.service';
 import * as fs from 'fs';
+import * as childProcess from 'child_process';
+import AdmZip from 'adm-zip';
 
 jest.mock('fs');
+jest.mock('child_process');
+jest.mock('adm-zip');
 
 const mockConfig = {
   agent: {
@@ -16,6 +20,9 @@ const mockConfig = {
   bridgeMode: 'live',
   responseTimeout: 15000,
   logLevel: 'info',
+  update: {
+    githubRepo: '',
+  },
 } as any;
 
 describe('CommandExecutor', () => {
@@ -126,6 +133,114 @@ describe('CommandExecutor', () => {
       );
       expect(mockAck).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
       expect(mockExit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('update', () => {
+    const mockFetch = jest.fn();
+    const mockSpawn = childProcess.spawn as jest.Mock;
+    const MockAdmZip = AdmZip as jest.MockedClass<typeof AdmZip>;
+
+    beforeEach(() => {
+      global.fetch = mockFetch;
+      mockSpawn.mockReturnValue({ unref: jest.fn() });
+      MockAdmZip.mockImplementation(() => ({
+        extractAllTo: jest.fn(),
+      }) as any);
+    });
+
+    afterEach(() => {
+      jest.resetAllMocks(); // resets mockImplementation on jest.mock mocks; restoreAllMocks only works for spyOn
+    });
+
+    it('sends failure ACK if version is missing', async () => {
+      await executor.execute(
+        { commandId: 'upd1', command: 'update', payload: null },
+        mockAck
+      );
+      expect(mockAck).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, message: expect.stringContaining('version') })
+      );
+      expect(mockExit).not.toHaveBeenCalled();
+    });
+
+    it('sends failure ACK if githubRepo is not configured', async () => {
+      const executorNoRepo = new CommandExecutor(
+        { ...mockConfig, update: { githubRepo: '' } },
+        mockExit
+      );
+      await executorNoRepo.execute(
+        { commandId: 'upd2', command: 'update', payload: { version: '1.0.0' } },
+        mockAck
+      );
+      expect(mockAck).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, message: expect.stringContaining('UPDATE_GITHUB_REPO') })
+      );
+      expect(mockExit).not.toHaveBeenCalled();
+    });
+
+    it('sends failure ACK if download fails', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 404 });
+      const executorWithRepo = new CommandExecutor(
+        { ...mockConfig, update: { githubRepo: 'owner/HopoFiscalBridge' } },
+        mockExit
+      );
+      await executorWithRepo.execute(
+        { commandId: 'upd3', command: 'update', payload: { version: '1.0.0' } },
+        mockAck
+      );
+      expect(mockAck).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false })
+      );
+      expect(mockExit).not.toHaveBeenCalled();
+    });
+
+    it('spawns update.ps1 detached and exits on success', async () => {
+      const fakeBuffer = Buffer.from('fake zip');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        arrayBuffer: jest.fn().mockResolvedValue(fakeBuffer.buffer),
+      });
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => {});
+
+      const executorWithRepo = new CommandExecutor(
+        { ...mockConfig, update: { githubRepo: 'owner/HopoFiscalBridge' } },
+        mockExit
+      );
+      await executorWithRepo.execute(
+        { commandId: 'upd4', command: 'update', payload: { version: '1.0.0' } },
+        mockAck
+      );
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'powershell.exe',
+        expect.arrayContaining(['-ExecutionPolicy', 'Bypass', '-File']),
+        expect.objectContaining({ detached: true, stdio: 'ignore' })
+      );
+      expect(mockAck).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: expect.stringContaining('Update initiated') })
+      );
+      expect(mockExit).toHaveBeenCalledWith(0);
+    });
+
+    it('exits even if ACK throws after successful spawn', async () => {
+      const fakeBuffer = Buffer.from('fake zip');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        arrayBuffer: jest.fn().mockResolvedValue(fakeBuffer.buffer),
+      });
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => {});
+      mockAck.mockRejectedValue(new Error('network'));
+
+      const executorWithRepo = new CommandExecutor(
+        { ...mockConfig, update: { githubRepo: 'owner/HopoFiscalBridge' } },
+        mockExit
+      );
+      await executorWithRepo.execute(
+        { commandId: 'upd5', command: 'update', payload: { version: '1.0.0' } },
+        mockAck
+      );
+      expect(mockExit).toHaveBeenCalledWith(0);
     });
   });
 });
