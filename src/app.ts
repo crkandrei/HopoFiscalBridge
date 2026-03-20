@@ -1,3 +1,6 @@
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const APP_VERSION: string = require('../package.json').version;
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { config } from './config/config';
@@ -104,7 +107,7 @@ async function initializeApp(): Promise<void> {
   const modeLabel = config.bridgeMode === 'live' ? 'LIVE' : 'TEST';
   const modeDescription = config.bridgeMode === 'live' ? 'Fiscal receipts' : 'Non-fiscal test receipts';
   logger.info(`Bridge mode: ${modeLabel} - ${modeDescription}`);
-  logger.info('Application initialized successfully (v1.0.2)');
+  logger.info(`Application initialized successfully (v${APP_VERSION})`);
 }
 
 /**
