@@ -1,6 +1,6 @@
 {
   "name": "bongo-fiscal-bridge",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Local print microservice for Datecs DP-25 MX fiscal printer via ECR Bridge",
   "main": "dist/app.js",
   "scripts": {
