@@ -52,6 +52,13 @@ try {
     Copy-Item -Path "$TempDir\node_modules" -Destination "$InstallDir\node_modules" -Recurse -Force
     Write-Log "Copying package.json..."
     Copy-Item -Path "$TempDir\package.json" -Destination "$InstallDir\package.json" -Force
+    Write-Log "Updating install scripts..."
+    if (Test-Path "$TempDir\install\update.ps1") {
+        Copy-Item -Path "$TempDir\install\update.ps1" -Destination "$InstallDir\install\update.ps1" -Force
+    }
+    if (Test-Path "$TempDir\install\install.ps1") {
+        Copy-Item -Path "$TempDir\install\install.ps1" -Destination "$InstallDir\install\install.ps1" -Force
+    }
     Write-Log "Files replaced successfully."
 } catch {
     Write-Log "ERROR during file copy: $_"
