@@ -19,6 +19,7 @@ export const receiptItemSchema = z.object({
     .number()
     .positive('Price must be a positive number')
     .finite('Price must be a finite number'),
+  vatClass: z.number().int().min(1).max(9).optional(),
 });
 
 /**

@@ -74,8 +74,8 @@ export async function handlePrintRequest(
     try {
       // Calculate total price and items
       let totalPrice = 0;
-      const receiptItems: Array<{ name: string; quantity: number; price: number }> = [];
-      
+      const receiptItems: Array<{ name: string; quantity: number; price: number; vatClass?: number }> = [];
+
       if (printData.items && printData.items.length > 0) {
         // New format: use items array
         printData.items.forEach((item) => {
@@ -83,6 +83,7 @@ export async function handlePrintRequest(
             name: item.name,
             quantity: item.quantity || 1,
             price: item.price,
+            vatClass: item.vatClass,
           });
           totalPrice += item.price * (item.quantity || 1);
         });

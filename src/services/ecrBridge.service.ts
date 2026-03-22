@@ -113,8 +113,8 @@ class ECRBridgeService {
     
     // Calculate total price
     let totalPrice = 0;
-    const receiptItems: Array<{ name: string; quantity: number; price: number }> = [];
-    
+    const receiptItems: Array<{ name: string; quantity: number; price: number; vatClass?: number }> = [];
+
     if (items && items.length > 0) {
       // New format: use items array
       items.forEach((item) => {
@@ -122,6 +122,7 @@ class ECRBridgeService {
           name: item.name,
           quantity: item.quantity || 1,
           price: item.price,
+          vatClass: item.vatClass,
         });
         totalPrice += item.price * (item.quantity || 1);
       });
@@ -147,7 +148,8 @@ class ECRBridgeService {
       // Generate item lines: I;name;qty;price;vat (one for each item)
       const itemLines = receiptItems.map((item) => {
         const formattedPrice = item.price.toString().replace(',', '.');
-        return `I;${item.name};${item.quantity};${formattedPrice};1`;
+        const vatClass = item.vatClass ?? 1;
+        return `I;${item.name};${item.quantity};${formattedPrice};${vatClass}`;
       });
       
       // Payment line: P;pay_code;value
