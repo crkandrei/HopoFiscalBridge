@@ -182,7 +182,7 @@ export class CommandExecutor {
     // Direct spawn() from a Windows Service is killed when the service process exits
     // because child processes are bound to the same Job Object.
     const taskName = 'HopoFiscalBridgeUpdate';
-    const psCmd = `powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "${updateScript}" "${extractDir}" "${installDir}"`;
+    const psCmd = `powershell.exe -ExecutionPolicy Bypass -NonInteractive -File \\"${updateScript}\\" \\"${extractDir}\\" \\"${installDir}\\"`;
     try {
       childProcess.execSync(`schtasks /delete /f /tn "${taskName}"`, { stdio: 'ignore' });
     } catch { /* ignore if task doesn't exist */ }
