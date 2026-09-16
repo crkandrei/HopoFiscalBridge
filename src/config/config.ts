@@ -17,6 +17,16 @@ export const config = {
     bonOkPath: process.env.ECR_BRIDGE_BON_OK_PATH || 'C:/ECRBridge/BonOK/',
     bonErrPath: process.env.ECR_BRIDGE_BON_ERR_PATH || 'C:/ECRBridge/BonErr/',
     fiscalCode: process.env.ECR_BRIDGE_FISCAL_CODE || undefined,
+
+    // Trimite departamentul pe fiecare linie de vânzare (I;...;um;dept).
+    // Se activează doar acolo unde casa are departamentele programate —
+    // altfel casa respinge bonul pentru un departament inexistent.
+    departmentsEnabled: process.env.ECR_BRIDGE_DEPARTMENTS_ENABLED === 'true',
+
+    // Emite RD (raport pe departamente) înainte de raportul Z.
+    // De lăsat pe false dacă EcrBridge are deja bifa „Z defalcat pe departamente",
+    // altfel raportul iese de două ori.
+    departmentReportBeforeZ: process.env.ECR_BRIDGE_DEPARTMENT_REPORT_BEFORE_Z === 'true',
   },
 
   // Response timeout in milliseconds

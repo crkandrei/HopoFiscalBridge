@@ -21,6 +21,45 @@ export interface ECRResponse {
 }
 
 /**
+ * A single line of a receipt, as it goes to the fiscal device
+ */
+export interface ReceiptItem {
+  name: string;
+  quantity: number;
+  price: number;
+  vatClass?: number;
+  dept?: number;
+  um?: string;
+}
+
+/** Unitatea de măsură implicită a casei, trimisă când platforma nu specifică alta. */
+const DEFAULT_UM = 'BUC.';
+
+/**
+ * Builds a sale line for the fiscal device.
+ *
+ * `dept` e pozițional după `um`, deci departamentul nu se poate trimite fără
+ * unitate de măsură. Fără departament linia rămâne în forma scurtă, ca să nu
+ * schimbăm nimic pe instalările care nu au departamente programate în casă.
+ *
+ * I;name;qty;price;vat
+ * I;name;qty;price;vat;um;dept
+ */
+export function buildItemLine(item: ReceiptItem): string {
+  const formattedPrice = item.price.toString().replace(',', '.');
+  const vatClass = item.vatClass ?? 1;
+  const line = `I;${item.name};${item.quantity};${formattedPrice};${vatClass}`;
+
+  const dept = config.ecrBridge.departmentsEnabled ? item.dept ?? 0 : 0;
+
+  if (dept <= 0) {
+    return line;
+  }
+
+  return `${line};${item.um ?? DEFAULT_UM};${dept}`;
+}
+
+/**
  * Service for interacting with ECR Bridge
  * Handles file generation and response monitoring
  */
@@ -63,6 +102,29 @@ class ECRBridgeService {
    * @returns The generated filename (without path) or null on error
    */
   public generateZReportFile(): string | null {
+    return this.generateCommandFile('Z', 'Z;1', 'Z Report');
+  }
+
+  /**
+   * Generates a department report file (RD)
+   * Format: RD_YYYYMMDD_HHMMSS.txt with content "RD"
+   * Casa acceptă RD doar înainte de raportul Z.
+   * @returns The generated filename (without path) or null on error
+   */
+  public generateDepartmentReportFile(): string | null {
+    return this.generateCommandFile('RD', 'RD', 'Department report');
+  }
+
+  /**
+   * Writes a single-command file in the Bon directory.
+   * Format: <prefix>_YYYYMMDD_HHMMSS.txt
+   * @returns The generated filename (without path) or null on error
+   */
+  private generateCommandFile(
+    prefix: string,
+    content: string,
+    label: string
+  ): string | null {
     try {
       // Ensure the Bon directory exists
       if (!ensureDirectoryExists(config.ecrBridge.bonPath)) {
@@ -70,7 +132,7 @@ class ECRBridgeService {
         return null;
       }
 
-      // Generate filename: Z_YYYYMMDD_HHMMSS.txt (with underscore between date and time)
+      // Generate filename: <prefix>_YYYYMMDD_HHMMSS.txt (with underscore between date and time)
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -78,19 +140,16 @@ class ECRBridgeService {
       const hours = String(now.getHours()).padStart(2, '0');
       const minutes = String(now.getMinutes()).padStart(2, '0');
       const seconds = String(now.getSeconds()).padStart(2, '0');
-      const filename = `Z_${year}${month}${day}_${hours}${minutes}${seconds}.txt`;
+      const filename = `${prefix}_${year}${month}${day}_${hours}${minutes}${seconds}.txt`;
       const filePath = path.join(config.ecrBridge.bonPath, filename);
-
-      // File content is "Z;1" on a single line
-      const content = 'Z;1';
 
       // Write file
       if (!writeFileSafe(filePath, content)) {
-        logger.error('Failed to write Z report file', { filename, filePath });
+        logger.error(`Failed to write ${label} file`, { filename, filePath });
         return null;
       }
 
-      logger.info('Z Report file generated', {
+      logger.info(`${label} file generated`, {
         filename,
         filePath,
         content,
@@ -98,22 +157,25 @@ class ECRBridgeService {
 
       return filename;
     } catch (error) {
-      logger.error('Error generating Z report file', { error });
+      logger.error(`Error generating ${label} file`, { error });
       return null;
     }
   }
 
   /**
-   * Generates the ECR Bridge file content according to mode
+   * Builds the ECR Bridge file content according to mode
    * LIVE mode: Official Datecs fiscal format (FISCAL, I;, P;)
    * TEST mode: Non-fiscal test format (TEXT, T;)
+   *
+   * Public pentru că print.controller are nevoie de exact aceeași comandă ca să
+   * verifice că fișierul din BonErr corespunde bonului trimis.
    */
-  private generateFileContent(data: PrintRequest, mode: 'live' | 'test'): string {
+  public buildFileContent(data: PrintRequest, mode: 'live' | 'test'): string {
     const { paymentType, items } = data;
-    
+
     // Calculate total price
     let totalPrice = 0;
-    const receiptItems: Array<{ name: string; quantity: number; price: number; vatClass?: number }> = [];
+    const receiptItems: ReceiptItem[] = [];
 
     if (items && items.length > 0) {
       // New format: use items array
@@ -123,6 +185,8 @@ class ECRBridgeService {
           quantity: item.quantity || 1,
           price: item.price,
           vatClass: item.vatClass,
+          dept: item.dept,
+          um: item.um,
         });
         totalPrice += item.price * (item.quantity || 1);
       });
@@ -145,13 +209,9 @@ class ECRBridgeService {
       const fiscalCode = config.ecrBridge.fiscalCode;
       const headerLine = fiscalCode ? `FISCAL;${fiscalCode}` : 'FISCAL';
       
-      // Generate item lines: I;name;qty;price;vat (one for each item)
-      const itemLines = receiptItems.map((item) => {
-        const formattedPrice = item.price.toString().replace(',', '.');
-        const vatClass = item.vatClass ?? 1;
-        return `I;${item.name};${item.quantity};${formattedPrice};${vatClass}`;
-      });
-      
+      // Generate item lines: I;name;qty;price;vat[;um;dept] (one for each item)
+      const itemLines = receiptItems.map((item) => buildItemLine(item));
+
       // Payment line: P;pay_code;value
       // pay_code: 1 = CASH (Numerar), 2 = CARD (Card) - conform documentației Datecs
       // value: 0 = pay total amount
@@ -216,7 +276,7 @@ class ECRBridgeService {
       const filePath = path.join(config.ecrBridge.bonPath, filename);
 
       // Generate file content based on mode
-      const content = this.generateFileContent(data, mode);
+      const content = this.buildFileContent(data, mode);
 
       // Write file
       if (!writeFileSafe(filePath, content)) {

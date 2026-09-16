@@ -4,6 +4,49 @@ import ecrBridgeService from '../services/ecrBridge.service';
 import { config } from '../config/config';
 import { incrementZReportCount, incrementErrorCount } from '../services/metrics.service';
 
+/** Cât așteptăm răspunsul casei la rapoarte — mai mult decât la un bon obișnuit. */
+const REPORT_TIMEOUT = 30000;
+
+type DepartmentReportStatus = 'skipped' | 'success' | 'error';
+
+/**
+ * Emits the department report (RD) that must precede the Z report.
+ *
+ * Nu blochează raportul Z: Z-ul e obligația fiscală, raportul pe departamente
+ * e doar informativ. Dacă RD eșuează, spunem asta în răspuns și mergem mai departe.
+ */
+async function emitDepartmentReport(requestId: string): Promise<DepartmentReportStatus> {
+  const filename = ecrBridgeService.generateDepartmentReportFile();
+
+  if (!filename) {
+    logger.error('Failed to generate department report file', { requestId });
+    return 'error';
+  }
+
+  try {
+    const response = await ecrBridgeService.waitForResponse(filename, 'RD', REPORT_TIMEOUT);
+
+    if (!response.success) {
+      logger.error('ECR Bridge returned error for department report', {
+        requestId,
+        filename,
+        details: response.details,
+      });
+      return 'error';
+    }
+
+    logger.info('Department report emitted', { requestId, filename });
+    return 'success';
+  } catch (error) {
+    logger.error('Error waiting for department report response', {
+      requestId,
+      filename,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 'error';
+  }
+}
+
 /**
  * Handles POST /z-report request
  * Generates a Z report file in the Bon directory and waits for ECR response
@@ -19,6 +62,11 @@ export async function handleZReportRequest(
       requestId,
       ip: req.ip,
     });
+
+    // Raportul pe departamente se poate emite numai înainte de raportul Z
+    const departmentReport: DepartmentReportStatus = config.ecrBridge.departmentReportBeforeZ
+      ? await emitDepartmentReport(requestId)
+      : 'skipped';
 
     // Generate Z report file
     const filename = ecrBridgeService.generateZReportFile();
@@ -44,8 +92,7 @@ export async function handleZReportRequest(
     // Pass "Z;1" as expected command to verify the error file corresponds to this Z report
     // Use longer timeout for Z reports (30 seconds) as they may take longer to process
     try {
-      const zReportTimeout = 30000; // 30 seconds for Z reports
-      const response = await ecrBridgeService.waitForResponse(filename, 'Z;1', zReportTimeout);
+      const response = await ecrBridgeService.waitForResponse(filename, 'Z;1', REPORT_TIMEOUT);
 
       if (response.success) {
         logger.info('Z Report request completed successfully', {
@@ -57,6 +104,7 @@ export async function handleZReportRequest(
           status: 'success',
           message: 'Z;1',
           file: filename,
+          departmentReport,
         });
       } else {
         logger.error('ECR Bridge returned error for Z report', {

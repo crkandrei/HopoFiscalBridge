@@ -68,75 +68,17 @@ export async function handlePrintRequest(
       return;
     }
 
-    // Generate the command that was sent (for validation)
-    // Use the same logic as generateFileContent to ensure consistency
+    // Aceeași comandă care s-a scris în fișier — folosită ca să verificăm
+    // că fișierul de răspuns din BonErr corespunde chiar bonului ăstuia.
     let sentCommand: string;
     try {
-      // Calculate total price and items
-      let totalPrice = 0;
-      const receiptItems: Array<{ name: string; quantity: number; price: number; vatClass?: number }> = [];
-
-      if (printData.items && printData.items.length > 0) {
-        // New format: use items array
-        printData.items.forEach((item) => {
-          receiptItems.push({
-            name: item.name,
-            quantity: item.quantity || 1,
-            price: item.price,
-            vatClass: item.vatClass,
-          });
-          totalPrice += item.price * (item.quantity || 1);
-        });
-      } else {
-        // Legacy format: use productName/duration/price
-        const { productName, duration, price } = printData;
-        if (productName && duration !== undefined && price !== undefined) {
-          receiptItems.push({
-            name: `${productName} (${duration})`,
-            quantity: 1,
-            price: price,
-          });
-          totalPrice = price;
-        }
-      }
-      
-      if (bridgeMode === 'live') {
-        // Format matches the official Datecs format
-        const fiscalCode = config.ecrBridge.fiscalCode;
-        const headerLine = fiscalCode ? `FISCAL;${fiscalCode}` : 'FISCAL';
-        const itemLines = receiptItems.map((item) => {
-          const formattedPrice = item.price.toString().replace(',', '.');
-          return `I;${item.name};${item.quantity};${formattedPrice};1`;
-        });
-        // Payment code: 1 = CASH (Numerar), 2 = CARD (Card) - conform documentației Datecs
-        const paymentCode = printData.paymentType === 'CASH' ? '1' : '2';
-        const paymentLine = `P;${paymentCode};0`;
-        sentCommand = `${headerLine}\n${itemLines.join('\n')}\n${paymentLine}`;
-      } else {
-        // TEST mode: Generate non-fiscal command for validation
-        const lines: string[] = ['TEXT'];
-        receiptItems.forEach((item) => {
-          const formattedPrice = item.price.toString().replace(',', '.');
-          const itemLine = `T;${item.name}${item.quantity > 1 ? ` x${item.quantity}` : ''}     ${formattedPrice}`;
-          lines.push(itemLine);
-        });
-        lines.push('T;--------------------');
-        const formattedTotal = totalPrice.toString().replace(',', '.');
-        lines.push(`T;TOTAL: ${formattedTotal}`);
-        const paymentText = printData.paymentType === 'CASH' ? 'CASH' : 'CARD';
-        lines.push(`T;Plata: ${paymentText}`);
-        lines.push('T;Bon NON-FISCAL - TEST');
-        sentCommand = lines.join('\n');
-      }
+      sentCommand = ecrBridgeService.buildFileContent(printData, bridgeMode);
     } catch (error) {
-      // Fallback to legacy format if error occurs
-      const fiscalCode = config.ecrBridge.fiscalCode;
-      const headerLine = fiscalCode ? `FISCAL;${fiscalCode}` : 'FISCAL';
-      const formattedPrice = (printData.price || 0).toString().replace(',', '.');
-      const itemLine = `I;${printData.productName || 'Product'} (${printData.duration || ''});1;${formattedPrice};1`;
-      const paymentCode = printData.paymentType === 'CASH' ? '1' : '2';
-      const paymentLine = `P;${paymentCode};0`;
-      sentCommand = `${headerLine}\n${itemLine}\n${paymentLine}`;
+      logger.warn('Could not rebuild sent command for response validation', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      sentCommand = '';
     }
 
     logger.info('Receipt file generated, waiting for response', {
