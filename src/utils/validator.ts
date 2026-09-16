@@ -20,6 +20,10 @@ export const receiptItemSchema = z.object({
     .positive('Price must be a positive number')
     .finite('Price must be a finite number'),
   vatClass: z.number().int().min(1).max(9).optional(),
+  // Departamentul casei de marcat: 0 = vânzare fără departament, 1-9 programate în casă.
+  dept: z.number().int().min(0).max(9).optional(),
+  // Unitatea de măsură; casa folosește BUC. dacă lipsește.
+  um: z.string().min(1).optional(),
 });
 
 /**

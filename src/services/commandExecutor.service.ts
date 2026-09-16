@@ -14,8 +14,14 @@ interface Command {
   payload: Record<string, string> | null;
 }
 
+const isBoolean = (v: string): boolean => v === 'true' || v === 'false';
+
 const ALLOWED_CONFIG_KEYS: Record<string, (value: string) => boolean> = {
   BRIDGE_MODE: (v) => v === 'live' || v === 'test',
+  // Departamentele se activează per locație, după ce service-ul le-a programat
+  // în casa de marcat — și trebuie să le putem opri tot de la distanță.
+  ECR_BRIDGE_DEPARTMENTS_ENABLED: isBoolean,
+  ECR_BRIDGE_DEPARTMENT_REPORT_BEFORE_Z: isBoolean,
   RESPONSE_TIMEOUT: (v) => {
     const n = parseInt(v, 10);
     return !isNaN(n) && n >= 5000 && n <= 60000;

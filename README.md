@@ -82,16 +82,21 @@ Asta creează un `.env` complet cu un `CLIENT_ID` UUID unic generat automat.
 notepad C:\HopoFiscalBridge\.env
 ```
 
-Completează câmpurile goale:
+Singurul câmp obligatoriu este cheia de la pasul 4:
 
 ```env
-ECR_BRIDGE_FISCAL_CODE=RO12345678      # CUI-ul clientului (opțional)
-CLOUD_API_URL=https://app.hopo.ro/api
 CLOUD_API_KEY=<key-ul copiat la pasul 4>
-UPDATE_GITHUB_REPO=crkandrei/HopoFiscalBridge
 ```
 
-Restul valorilor (PORT, căile ECR, RESPONSE_TIMEOUT etc.) sunt deja corecte din generare.
+Opțional, CUI-ul clientului:
+
+```env
+ECR_BRIDGE_FISCAL_CODE=RO12345678
+```
+
+Restul valorilor (PORT, căile ECR, `RESPONSE_TIMEOUT`, `CLOUD_API_URL`, `UPDATE_GITHUB_REPO`, `BRIDGE_MODE=live`) vin deja corecte din generare — nu le modifica.
+
+> Dacă vrei să verifici instalarea fără să emiți bonuri fiscale reale, pune temporar `BRIDGE_MODE=test` și treci înapoi pe `live` imediat după verificare. În `test` vânzările reale **nu** se înregistrează fiscal.
 
 ---
 
@@ -210,6 +215,8 @@ Actualizează `.env` și repornește serviciul. Chei permise:
 | Cheie | Valori acceptate |
 |-------|-----------------|
 | `BRIDGE_MODE` | `live` sau `test` |
+| `ECR_BRIDGE_DEPARTMENTS_ENABLED` | `true` sau `false` |
+| `ECR_BRIDGE_DEPARTMENT_REPORT_BEFORE_Z` | `true` sau `false` |
 | `RESPONSE_TIMEOUT` | număr între `5000` și `60000` |
 | `LOG_LEVEL` | `info`, `warn`, `error` |
 | `HEARTBEAT_INTERVAL` | număr ≥ `5000` |
@@ -220,7 +227,11 @@ Exemple:
 ```json
 { "command": "set_config", "payload": { "BRIDGE_MODE": "test" } }
 { "command": "set_config", "payload": { "BRIDGE_MODE": "live" } }
+{ "command": "set_config", "payload": { "ECR_BRIDGE_DEPARTMENTS_ENABLED": "true" } }
 ```
+
+Departamentele se pot activa și din Locații → Editează → Configurare Bridge, butonul
+„Activează departamente" — dar numai după ce service-ul le-a programat în casa de marcat.
 
 ---
 
@@ -251,7 +262,41 @@ Descris în secțiunea [Auto-update pe stații existente](#auto-update-pe-stați
 
 ### POST /z-report
 
-Body gol. Timeout 30 secunde. Răspuns success: `{ "status": "success", "message": "Z;1" }`.
+Body gol. Timeout 30 secunde. Răspuns success: `{ "status": "success", "message": "Z;1", "departmentReport": "skipped" }`.
+
+`departmentReport` spune ce s-a întâmplat cu raportul pe departamente: `skipped` (opțiunea e oprită),
+`success`, sau `error` — în cazul `error` raportul Z s-a emis oricum, doar defalcarea lipsește.
+
+---
+
+## Raport Z defalcat pe departamente
+
+Casa acumulează vânzările pe departamente doar dacă primește departamentul pe **fiecare** linie de
+vânzare. Bifa „Z defalcat pe departamente" din EcrBridge nu e suficientă singură — fără departament
+trimis de noi, tot bonul intră pe „fără departament".
+
+**Înainte de activare**, service-ul trebuie să programeze departamentele în casa de marcat:
+
+| Departament | Nume | Ce intră |
+|---|---|---|
+| 1 | Marfă | tot ce se revinde ca atare — băuturi, snackuri, șosete |
+| 2 | Prestări servicii | ora de joacă, pachetele de timp, avansuri și pachete de eveniment |
+| 3 | Garanție SGR | linia de garanție SGR |
+
+Numerele trebuie să corespundă — casa ține numele, platforma trimite doar numărul. Dacă un
+departament nu e programat în casă, casa respinge bonul.
+
+Apoi în `.env`:
+
+```env
+ECR_BRIDGE_DEPARTMENTS_ENABLED=true
+# doar dacă bifa din EcrBridge NU emite deja raportul pe departamente:
+ECR_BRIDGE_DEPARTMENT_REPORT_BEFORE_Z=true
+```
+
+Documentația EcrBridge: linia de vânzare e `I;nume;cant;pret;tva;um;dept` (dept `0-9`, `0` =
+fără departament), iar raportul pe departamente e comanda `RD`, care se poate emite **numai
+înainte** de raportul Z.
 
 ---
 
@@ -272,6 +317,8 @@ Body gol. Timeout 30 secunde. Răspuns success: `{ "status": "success", "message
 | `ECR_BRIDGE_BON_OK_PATH` | Folder BonOK | `C:/ECRBridge/BonOK/` |
 | `ECR_BRIDGE_BON_ERR_PATH` | Folder BonErr | `C:/ECRBridge/BonErr/` |
 | `ECR_BRIDGE_FISCAL_CODE` | CUI client (opțional) | - |
+| `ECR_BRIDGE_DEPARTMENTS_ENABLED` | Trimite departamentul pe linia de vânzare | `false` |
+| `ECR_BRIDGE_DEPARTMENT_REPORT_BEFORE_Z` | Emite `RD` înainte de raportul Z | `false` |
 | `RESPONSE_TIMEOUT` | Timeout bon (ms) | `15000` |
 | `BRIDGE_MODE` | `live` sau `test` | `live` |
 | `LOG_LEVEL` | `info`, `warn`, `error` | `info` |
